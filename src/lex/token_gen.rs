@@ -6,7 +6,6 @@ pub enum Token {
     Value(i32),
 }
 
-
 #[derive(Clone, Debug)]
 pub struct TokenGenerator<C> {
     chars: C,
