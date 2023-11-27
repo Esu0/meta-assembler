@@ -1,5 +1,8 @@
 use std::io;
 
+/// 演算子のリスト
+const OPERATORS: [&'static str; 8] = ["#", "*", ";", "(", ")", "[", "]", ":"];
+
 // トークン型のvariantの型は要検討
 // 型の候補↓
 // Wordのvariantの型: String, Vec<char>
@@ -8,7 +11,7 @@ use std::io;
 pub enum Token {
     // token kinds
     /// 整数
-    Integer(i64),
+    Integer(u64),
     /// 識別子、キーワードなど
     Word(String),
     /// 演算子

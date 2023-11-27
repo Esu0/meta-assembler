@@ -102,7 +102,7 @@ mod test {
         let mut chars = gen.chars();
 
         // イメージ的にはエラー処理はこんな感じになると想定
-        let c = match chars.next().unwrap() {
+        let _c = match chars.next().unwrap() {
             Ok(c) => c,
             Err(e) => {
                 // invalid dataとしか表示されないので、自作エラー型を作りたい
