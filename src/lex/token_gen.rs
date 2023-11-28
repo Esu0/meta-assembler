@@ -1,5 +1,7 @@
 use std::io;
 
+use super::char_gen::CharGenerator;
+
 /// 演算子のリスト
 const OPERATORS: [&str; 8] = ["#", "*", ";", "(", ")", "[", "]", ":"];
 
@@ -21,19 +23,19 @@ pub enum Token {
 /// トークンを生成するイテレータ
 #[derive(Clone, Debug)]
 pub struct TokenGenerator<C> {
-    chars: C,
+    chars: CharGenerator<C>,
     // additional field
 }
 
 impl<C: Iterator<Item = io::Result<char>>> TokenGenerator<C> {
-    pub fn new(chars: C) -> Self {
+    pub fn new(chars: CharGenerator<C>) -> Self {
         Self { chars }
     }
 
     // parserから位置情報が見えない問題を解決するために、
     // 内部の参照にアクセスできるようにする。
     /// 内部の文字のイテレータを返す
-    pub fn inner(&self) -> &C {
+    pub fn inner(&self) -> &CharGenerator<C> {
         &self.chars
     }
 }

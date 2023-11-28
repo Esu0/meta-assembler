@@ -1,60 +1,53 @@
-use std::{
-    fs::File,
-    io::{self, BufRead, BufReader},
-    path::Path,
-};
+use std::io::{self, BufRead};
 
 use utf8_chars::BufReadCharsExt;
 
-/// Readerから文字のイテレータを生成するための中間型
-pub struct CharGenerator<R> {
-    reader: R,
+use super::token_gen::TokenGenerator;
+
+
+/// 位置情報付きの文字のイテレータ
+#[derive(Clone, Debug)]
+pub struct CharGenerator<C> {
+    chars: C,
+    line: usize,
+    column: usize,
 }
 
-impl<R: BufRead> CharGenerator<R> {
-    pub fn new(reader: R) -> Self {
-        CharGenerator { reader }
+impl<C> CharGenerator<C> {
+    /// 現在の位置を返す
+    pub fn position(&self) -> (usize, usize) {
+        (self.line, self.column)
     }
 
-    /// 文字のイテレータを生成する
-    pub fn chars(&mut self) -> impl Iterator<Item = io::Result<char>> + '_ {
-        self.reader.chars()
+    pub fn into_token_generator(self) -> TokenGenerator<C>
+    where
+        C: Iterator<Item = io::Result<char>>
+    {
+        TokenGenerator::new(self)
     }
+}
 
-    /// ファイルなどの位置情報付きで文字のイテレータを生成する
-    pub fn chars_with_pos(&mut self) -> CharsWithPos<impl Iterator<Item = io::Result<char>> + '_> {
-        CharsWithPos {
-            chars: self.reader.chars(),
+impl<'a, R: BufRead> From<&'a mut R> for CharGenerator<utf8_chars::Chars<'a, R>> {
+    fn from(value: &'a mut R) -> Self {
+        Self {
+            chars: value.chars(),
             line: 1,
             column: 1,
         }
     }
 }
 
-impl CharGenerator<BufReader<File>> {
-    /// pathで指定したファイルを読み込む
-    pub fn load<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        Ok(CharGenerator::new(reader))
+impl<'a, R: BufRead> CharGenerator<utf8_chars::Chars<'a, R>> {
+    pub fn new(reader: &'a mut R) -> Self {
+        Self {
+            chars: reader.chars(),
+            line: 1,
+            column: 1,
+        }
     }
 }
 
-/// 位置情報付きの文字のイテレータ
-pub struct CharsWithPos<C> {
-    chars: C,
-    line: usize,
-    column: usize,
-}
-
-impl<C> CharsWithPos<C> {
-    /// 現在の位置を返す
-    pub fn position(&self) -> (usize, usize) {
-        (self.line, self.column)
-    }
-}
-
-impl<C: Iterator<Item = io::Result<char>>> Iterator for CharsWithPos<C> {
+impl<C: Iterator<Item = io::Result<char>>> Iterator for CharGenerator<C> {
     type Item = C::Item;
     fn next(&mut self) -> Option<Self::Item> {
         let c = self.chars.next();
@@ -86,9 +79,8 @@ mod test {
 
     #[test]
     fn char_generator_test() {
-        let buf = "你好，世界！\nHello, world!\n".as_bytes();
-        let mut gen = CharGenerator::new(buf);
-        let mut chars = gen.chars();
+        let mut buf = "你好，世界！\nHello, world!\n".as_bytes();
+        let mut chars = CharGenerator::new(&mut buf);
         assert_eq!(chars.next().unwrap().unwrap(), '你');
         assert_eq!(chars.next().unwrap().unwrap(), '好');
         assert_eq!(chars.next().unwrap().unwrap(), '，');
@@ -97,9 +89,8 @@ mod test {
     #[test]
     #[should_panic]
     fn char_generator_error() {
-        let buf = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
-        let mut gen = CharGenerator::new(buf.as_ref());
-        let mut chars = gen.chars();
+        let mut buf = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff].as_ref();
+        let mut chars = CharGenerator::new(&mut buf);
 
         // イメージ的にはエラー処理はこんな感じになると想定
         let _c = match chars.next().unwrap() {
