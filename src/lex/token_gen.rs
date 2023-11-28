@@ -3,7 +3,7 @@ use std::io;
 use super::char_gen::CharGenerator;
 
 /// 演算子のリスト
-const OPERATORS: [&'static str; 8] = ["#", "*", ";", "(", ")", "[", "]", ":"];
+const OPERATORS: [&str; 8] = ["#", "*", ";", "(", ")", "[", "]", ":"];
 
 // トークン型のvariantの型は要検討
 // 型の候補↓
@@ -41,7 +41,7 @@ impl<C: Iterator<Item = io::Result<char>>> TokenGenerator<C> {
 }
 
 impl<C: Iterator<Item = io::Result<char>>> Iterator for TokenGenerator<C> {
-    type Item = Token;
+    type Item = Result<Token, super::Error>;
     fn next(&mut self) -> Option<Self::Item> {
         unimplemented!()
     }
