@@ -8,6 +8,7 @@ const OPERATORS: [&str; 8] = ["#", "*", ";", "(", ")", "[", "]", ":"];
 // Wordのvariantの型: String, Vec<char>
 // Oprのvariantの型: String, ShortVec<char, 3>, [char; 3]など
 /// トークン型
+#[derive(Debug)]
 pub enum Token {
     // token kinds
     /// 整数
@@ -41,6 +42,34 @@ impl<C: Iterator<Item = io::Result<char>>> TokenGenerator<C> {
 impl<C: Iterator<Item = io::Result<char>>> Iterator for TokenGenerator<C> {
     type Item = Result<Token, super::Error>;
     fn next(&mut self) -> Option<Self::Item> {
-        unimplemented!()
+        if let Some(r) = self.chars.next() {
+            match r {
+                Ok(c) => Some(Ok(Token::Word(c.to_string()))),
+                Err(e) => {
+                    match e.kind() {
+                        io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof => {
+                            Some(Err(
+                                super::Error {
+                                    inner: super::_Error::EncodeError { line: 1, column: 1 }
+                                }
+                            ))
+                        },
+                        _ => unreachable!(),
+                    }
+                },
+            }
+        } else {
+            None
+        }
     }
+}
+
+#[test]
+fn token_generator_test() {
+    let buf = [0xffu8, 0xffu8];
+    let mut binding = super::char_gen::CharGenerator::new(buf.as_ref());
+    let mut gen = TokenGenerator::new(binding.chars());
+    println!("{:?}", gen.next());
+    println!("{:?}", gen.next());
+    println!("{:?}", gen.next());
 }
