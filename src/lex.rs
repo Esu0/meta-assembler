@@ -9,8 +9,10 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 enum _Error {
     /// オーバーフローを含む
-    #[error("line {line}: Token \"{token}\" cannot parse to integer.")]
-    ParseIntError { line: usize, token: String },
+    #[error("line {line}(column={column}): Token \"{token}\" cannot parse to integer.")]
+    ParseIntError { line: usize, column: usize, token: String },
+    #[error("line {line}(column={column}): encoding error.")]
+    EncodeError { line: usize, column: usize },
 }
 
 #[derive(Debug, Error)]
@@ -29,12 +31,13 @@ mod test {
         let e = Error {
             inner: _Error::ParseIntError {
                 line: 1,
+                column: 1,
                 token: "100a".to_owned(),
             },
         };
         assert_eq!(
             e.to_string(),
-            "line 1: Token \"100a\" cannot parse to integer."
+            "line 1(column=1): Token \"100a\" cannot parse to integer."
         );
     }
 }
