@@ -10,10 +10,7 @@ use thiserror::Error;
 enum _Error {
     /// オーバーフローを含む
     #[error("line {line}: Token \"{token}\" cannot parse to integer.")]
-    ParseIntError {
-        line: usize,
-        token: String,
-    },
+    ParseIntError { line: usize, token: String },
 }
 
 #[derive(Debug, Error)]
@@ -30,8 +27,14 @@ mod test {
     #[test]
     fn error_test() {
         let e = Error {
-            inner: _Error::ParseIntError { line: 1, token: "100a".to_owned() },
+            inner: _Error::ParseIntError {
+                line: 1,
+                token: "100a".to_owned(),
+            },
         };
-        assert_eq!(e.to_string(), "line 1: Token \"100a\" cannot parse to integer.");
+        assert_eq!(
+            e.to_string(),
+            "line 1: Token \"100a\" cannot parse to integer."
+        );
     }
 }
