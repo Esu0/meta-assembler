@@ -20,7 +20,7 @@ pub enum Token {
     Opr(String),
 }
 
-/// トークンを生成するイテレータ
+/// charのイテレータを受け取ってトークンのイテレータにする
 #[derive(Clone, Debug)]
 pub struct TokenGenerator<C> {
     chars: CharGenerator<C>,
