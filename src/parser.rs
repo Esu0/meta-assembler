@@ -7,6 +7,8 @@ use std::io;
 
 use thiserror::Error;
 
+use crate::lex::token_gen::TokenGenerator;
+
 #[derive(Error, Debug)]
 pub enum ErrorKind {
     #[error("予期せぬトークン{found}が検出されました。トークン{expected}が予測されます。")]
@@ -67,4 +69,15 @@ impl From<io::Error> for Error {
         }
     }
 }
-// exports
+
+pub trait IteratorWithPos: Iterator {
+    fn position(&self) -> (usize, usize) {
+        (0, 0)
+    }
+}
+
+impl<C: Iterator<Item = io::Result<char>>> IteratorWithPos for TokenGenerator<C> {
+    fn position(&self) -> (usize, usize) {
+        self.position()
+    }
+}

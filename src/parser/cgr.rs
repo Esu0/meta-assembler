@@ -4,7 +4,7 @@ use std::io;
 
 use crate::lex::token_gen::{TokenGenerator, Token};
 
-use super::{Error, ErrorKind};
+use super::{Error, ErrorKind, IteratorWithPos};
 
 pub enum Node {
     Integer(u64),
@@ -31,12 +31,12 @@ impl From<Token> for Node {
     }
 }
 
-pub struct Parser<C> {
-    token_generator: TokenGenerator<C>,
+pub struct Parser<T: IteratorWithPos<Item = Result<Token, crate::lex::Error>>> {
+    token_generator: T,
 }
 
-impl<C: Iterator<Item = io::Result<char>>> Parser<C> {
-    pub fn new(token_generator: TokenGenerator<C>) -> Self {
+impl<T: IteratorWithPos<Item = Result<Token, crate::lex::Error>>> Parser<T> {
+    pub fn new(token_generator: T) -> Self {
         Self { token_generator }
     }
 
@@ -55,5 +55,15 @@ impl<C: Iterator<Item = io::Result<char>>> Parser<C> {
         } else {
             Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn parser_test() {
+        
     }
 }
