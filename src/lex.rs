@@ -22,6 +22,19 @@ pub struct Error {
     inner: _Error,
 }
 
+impl Error {
+    fn new_parse_int_error(line: usize, column: usize, token: String) -> Self {
+        Self {
+            inner: _Error::ParseIntError { line, column, token },
+        }
+    }
+    fn new_encode_error(line: usize, column: usize) -> Self {
+        Self {
+            inner: _Error::EncodeError { line, column },
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
