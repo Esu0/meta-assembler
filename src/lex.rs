@@ -6,7 +6,7 @@ pub mod token_gen;
 
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone, PartialEq)]
 enum _Error {
     /// オーバーフローを含む
     #[error("line {line}(column={column}): Token \"{token}\" cannot parse to integer.")]
@@ -15,7 +15,7 @@ enum _Error {
     EncodeError { line: usize, column: usize },
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone, PartialEq)]
 #[error(transparent)]
 pub struct Error {
     #[from]
