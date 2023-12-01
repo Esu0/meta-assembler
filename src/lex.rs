@@ -10,7 +10,11 @@ use thiserror::Error;
 enum _Error {
     /// オーバーフローを含む
     #[error("line {line}(column={column}): Token \"{token}\" cannot parse to integer.")]
-    ParseIntError { line: usize, column: usize, token: String },
+    ParseIntError {
+        line: usize,
+        column: usize,
+        token: String,
+    },
     #[error("line {line}(column={column}): encoding error.")]
     EncodeError { line: usize, column: usize },
 }
@@ -25,7 +29,11 @@ pub struct Error {
 impl Error {
     fn new_parse_int_error(line: usize, column: usize, token: String) -> Self {
         Self {
-            inner: _Error::ParseIntError { line, column, token },
+            inner: _Error::ParseIntError {
+                line,
+                column,
+                token,
+            },
         }
     }
     fn new_encode_error(line: usize, column: usize) -> Self {

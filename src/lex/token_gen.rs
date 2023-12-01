@@ -35,7 +35,7 @@ impl Token {
     }
     // WordまたはIntegerの一部
     fn is_common(c: char) -> bool {
-        return !Self::is_opr(c) && !Self::is_whitespace(c) && !Self::is_newline(c);
+        !Self::is_opr(c) && !Self::is_whitespace(c) && !Self::is_newline(c)
     }
 }
 
@@ -49,7 +49,10 @@ pub struct TokenGenerator<C> {
 
 impl<C: Iterator<Item = io::Result<char>>> TokenGenerator<C> {
     pub fn new(chars: CharGenerator<C>) -> Self {
-        Self { chars, next_head: None }
+        Self {
+            chars,
+            next_head: None,
+        }
     }
 
     // parserから位置情報が見えない問題を解決するために、
@@ -70,8 +73,8 @@ impl<C: Iterator<Item = io::Result<char>>> Iterator for TokenGenerator<C> {
             // 前回のエンコードでエラーが起きている場合
             Some(Err(e)) => {
                 self.next_head = None;
-                return Some(Err(e.clone()))
-            },
+                return Some(Err(e.clone()));
+            }
             // 一文字目が前回の実行で取得されていない場合
             None => match self.chars.next()? {
                 Ok(h) => h,
@@ -81,7 +84,7 @@ impl<C: Iterator<Item = io::Result<char>>> Iterator for TokenGenerator<C> {
                     let (line, column) = self.chars.position();
                     return Some(Err(super::Error::new_encode_error(line, column)));
                 }
-            }
+            },
         };
         // white space をすべて無視し、Tokenの先頭を取得
         while Token::is_whitespace(head) {
@@ -108,7 +111,8 @@ impl<C: Iterator<Item = io::Result<char>>> Iterator for TokenGenerator<C> {
         let mut radix = 10;
         let mut ret = String::new();
         // トークンの先頭が数字でないとき
-        if !head.is_digit(10) {
+        // if !head.is_digit(10) {}と等価
+        if head.is_ascii_digit() {
             // 先頭の文字をretに追加
             ret.push(head);
             loop {
@@ -122,11 +126,11 @@ impl<C: Iterator<Item = io::Result<char>>> Iterator for TokenGenerator<C> {
                             self.next_head = Some(Ok(c));
                             break;
                         }
-                    },
+                    }
                     Some(Err(_)) => {
                         self.next_head = Some(Err(super::Error::new_encode_error(line, column)));
                         break;
-                    },
+                    }
                     None => {
                         self.next_head = None;
                         break;
@@ -157,18 +161,18 @@ impl<C: Iterator<Item = io::Result<char>>> Iterator for TokenGenerator<C> {
                                 self.next_head = Some(Ok(c));
                                 return Some(Ok(Token::Integer(0)));
                             }
-                        },
+                        }
                     }
-                },
+                }
                 Some(Err(_)) => {
                     self.next_head = Some(Err(super::Error::new_encode_error(line, column)));
                     return Some(Ok(Token::Integer(0)));
-                },
+                }
                 None => {
                     // ファイルの末尾にたどりついた
                     self.next_head = None;
                     return Some(Ok(Token::Integer(0)));
-                },
+                }
             }
         } else {
             ret.push(head);
@@ -183,27 +187,37 @@ impl<C: Iterator<Item = io::Result<char>>> Iterator for TokenGenerator<C> {
                         self.next_head = Some(Ok(c));
                         break;
                     }
-                },
+                }
                 Some(Err(_)) => {
                     self.next_head = Some(Err(super::Error::new_encode_error(line, column)));
                     break;
-                },
+                }
                 None => {
                     self.next_head = None;
                     break;
-                },
+                }
             }
         }
         match u64::from_str_radix(ret.as_str(), radix) {
             Ok(v) => Some(Ok(Token::Integer(v))),
-            Err(_) => {
-                match radix {
-                    16 => Some(Err(super::Error::new_parse_int_error(line, column, "0x".to_string() + ret.as_str()))),
-                    10 => Some(Err(super::Error::new_parse_int_error(line, column, ret))),
-                    8 => Some(Err(super::Error::new_parse_int_error(line, column, "0o".to_string() + ret.as_str()))),
-                    2 => Some(Err(super::Error::new_parse_int_error(line, column, "0b".to_string() + ret.as_str()))),
-                    _ => unreachable!(),
-                }
+            Err(_) => match radix {
+                16 => Some(Err(super::Error::new_parse_int_error(
+                    line,
+                    column,
+                    "0x".to_string() + ret.as_str(),
+                ))),
+                10 => Some(Err(super::Error::new_parse_int_error(line, column, ret))),
+                8 => Some(Err(super::Error::new_parse_int_error(
+                    line,
+                    column,
+                    "0o".to_string() + ret.as_str(),
+                ))),
+                2 => Some(Err(super::Error::new_parse_int_error(
+                    line,
+                    column,
+                    "0b".to_string() + ret.as_str(),
+                ))),
+                _ => unreachable!(),
             },
         }
     }
@@ -217,7 +231,10 @@ fn token_generator_test() {
     let binding = super::char_gen::CharGenerator::new(&mut p);
     let mut gen = binding.into_token_generator();
     assert_eq!(gen.next(), Some(Ok(Token::Opr("#".to_string()))));
-    assert_eq!(gen.next(), Some(Ok(Token::Word("general_definition".to_string()))));
+    assert_eq!(
+        gen.next(),
+        Some(Ok(Token::Word("general_definition".to_string())))
+    );
     assert_eq!(gen.next(), Some(Ok(Token::NewLine)));
     assert_eq!(gen.next(), Some(Ok(Token::Opr("*".to_string()))));
     assert_eq!(gen.next(), Some(Ok(Token::Word("word_size".to_string()))));
@@ -227,7 +244,10 @@ fn token_generator_test() {
     assert_eq!(gen.next(), Some(Ok(Token::Word("end".to_string()))));
     assert_eq!(gen.next(), Some(Ok(Token::NewLine)));
     assert_eq!(gen.next(), Some(Ok(Token::Opr("#".to_string()))));
-    assert_eq!(gen.next(), Some(Ok(Token::Word("rule_definition".to_string()))));
+    assert_eq!(
+        gen.next(),
+        Some(Ok(Token::Word("rule_definition".to_string())))
+    );
     assert_eq!(gen.next(), Some(Ok(Token::NewLine)));
     assert_eq!(gen.next(), Some(Ok(Token::Word("add".to_string()))));
     assert_eq!(gen.next(), Some(Ok(Token::Integer(255))));
@@ -259,8 +279,22 @@ fn token_generator_test() {
     assert_eq!(gen.next(), Some(Ok(Token::Integer(0x0f))));
     assert_eq!(gen.next(), Some(Ok(Token::Integer(0o17))));
     assert_eq!(gen.next(), Some(Ok(Token::Integer(0b1010))));
-    assert_eq!(gen.next(), Some(Err(super::Error::new_parse_int_error(1, 22, "0xG".to_string()))));
-    assert_eq!(gen.next(), Some(Err(super::Error::new_parse_int_error(1, 26, "0a12".to_string()))));
+    assert_eq!(
+        gen.next(),
+        Some(Err(super::Error::new_parse_int_error(
+            1,
+            22,
+            "0xG".to_string()
+        )))
+    );
+    assert_eq!(
+        gen.next(),
+        Some(Err(super::Error::new_parse_int_error(
+            1,
+            26,
+            "0a12".to_string()
+        )))
+    );
     assert_eq!(gen.next(), Some(Ok(Token::Integer(12))));
     assert_eq!(gen.next(), Some(Ok(Token::Integer(0))));
     assert_eq!(gen.next(), Some(Ok(Token::Opr(":".to_string()))));
@@ -282,7 +316,9 @@ fn token_generator_test() {
     assert_eq!(gen.next(), None);
 
     // encode error
-    let buf = [0xff, b'1', 0xff, b'0', 0xff, b'a', 0xff, b'\n', 0xff, b']', 0xff, b' ', 0xff];
+    let buf = [
+        0xff, b'1', 0xff, b'0', 0xff, b'a', 0xff, b'\n', 0xff, b']', 0xff, b' ', 0xff,
+    ];
     let mut p = buf.as_ref();
     let biding = super::char_gen::CharGenerator::new(&mut p);
     let mut gen = biding.into_token_generator();
