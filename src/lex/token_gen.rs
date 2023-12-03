@@ -112,7 +112,7 @@ impl<C: Iterator<Item = io::Result<char>>> Iterator for TokenGenerator<C> {
         let mut ret = String::new();
         // トークンの先頭が数字でないとき
         // if !head.is_digit(10) {}と等価
-        if head.is_ascii_digit() {
+        if !head.is_ascii_digit() {
             // 先頭の文字をretに追加
             ret.push(head);
             loop {
