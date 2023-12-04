@@ -4,7 +4,6 @@ use utf8_chars::BufReadCharsExt;
 
 use super::token_gen::TokenGenerator;
 
-
 /// 位置情報付きの文字のイテレータ
 #[derive(Clone, Debug)]
 pub struct CharGenerator<C> {
@@ -21,7 +20,7 @@ impl<C> CharGenerator<C> {
 
     pub fn into_token_generator(self) -> TokenGenerator<C>
     where
-        C: Iterator<Item = io::Result<char>>
+        C: Iterator<Item = io::Result<char>>,
     {
         TokenGenerator::new(self)
     }
