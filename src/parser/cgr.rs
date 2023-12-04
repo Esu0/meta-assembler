@@ -13,6 +13,7 @@ pub enum Node {
     Comma,
     Semicolon,
     Colon,
+    LF,
 }
 
 impl From<Token> for Node {
@@ -26,6 +27,7 @@ impl From<Token> for Node {
                 _ => unimplemented!(),
             },
             Token::Word(w) => Self::Identifier(w),
+            Token::NewLine => Self::LF,
         }
     }
 }
