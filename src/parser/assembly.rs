@@ -1,7 +1,7 @@
 //! アセンブリの構文解析
 
-use std::{collections::HashMap, num::NonZeroU64};
 use itertools::Itertools;
+use std::{collections::HashMap, num::NonZeroU64};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Rules {
@@ -17,13 +17,26 @@ struct GeneralRule {
     empty_symbol_mode: u8,
 }
 
+impl Default for GeneralRule {
+    fn default() -> Self {
+        Self {
+            word_size: 8,
+            address_size: 16,
+            address_mode: 2,
+            empty_symbol_mode: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Rule {
     operands: Box<[OperandRule]>,
     /// オペコードのビット列
     /// オペランドがない時のビット列になるようにする
     code: Box<[u8]>,
-    opr_code: Box<[OprCode]>
+    opr_code: Box<[OprCode]>,
+    /// アドレッシングモード(ラベルによる指定のときのみ有効)
+    relative: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,7 +66,10 @@ struct TableKey {
 
 impl TableKey {
     fn indice(self) -> TableKeyIndice {
-        TableKeyIndice { index: self.index, bit: 1 }
+        TableKeyIndice {
+            index: self.index,
+            bit: 1,
+        }
     }
 }
 
@@ -88,6 +104,14 @@ struct Table {
     tbl: HashMap<Box<str>, u64>,
 }
 
+impl Table {
+    fn from_slice(slc: &[(&str, u64)]) -> Self {
+        Self {
+            tbl: slc.iter().map(|(k, v)| (k.to_owned().into(), *v)).collect(),
+        }
+    }
+}
+
 enum Operand {
     Register(Box<str>),
     Immediate(u64),
@@ -120,36 +144,65 @@ fn write_bits(slc: &mut [u8], mut n: u64, pos: usize, mut len: u8) {
         slc[il] = (slc[il] & !(0xff << jl)) | ((n as u8 & ((1 << len) - 1)) << jl);
     }
 }
+
+/// エンディアン変換
+fn toggle_endian(n: u64, len: u8, byte_len: u8) -> u64 {
+    unimplemented!()
+}
+
 impl Rule {
-    fn assemble(&self, operands: impl Iterator<Item = Option<Operand>>, table: &Tables, labels: &LabelTable) -> Result<Box<[u8]>> {
-        let opr_bytes: Vec<Option<u64>> = operands.zip(self.operands.iter()).map(|(opr, rule)| 
-            match (opr, rule) {
+    fn assemble(
+        &self,
+        operands: impl Iterator<Item = Option<Operand>>,
+        table: &Tables,
+        labels: &LabelTable,
+        base_address: u64,
+    ) -> Result<Box<[u8]>> {
+        let opr_bytes: Vec<Option<u64>> = operands
+            .zip(self.operands.iter())
+            .map(|(opr, rule)| match (opr, rule) {
                 (Some(Operand::Register(r)), OperandRule::Register(key)) => {
-                    if let Some(n) = key.indice().filter_map(|i| table.tbls[i as usize].tbl.get(&r)).copied().next() {
+                    if let Some(n) = key
+                        .indice()
+                        .filter_map(|i| table.tbls[i as usize].tbl.get(&r))
+                        .copied()
+                        .next()
+                    {
                         Ok(Some(n))
                     } else {
-                        Err(Error::op_violation(OperandViolation::UnknownRegister(r.clone())))
+                        Err(Error::op_violation(OperandViolation::UnknownRegister(
+                            r.clone(),
+                        )))
                     }
-                },
-                (Some(Operand::Immediate(n)), rule) => {
-                    match rule {
-                        OperandRule::Immediate => Ok(Some(n)),
-                        OperandRule::Register(k) if k.index.get() & 1 == 1 => Ok(Some(n)),
-                        _ => Err(Error::op_violation(OperandViolation::CannotUseImmediate)),
-                    }
+                }
+                (Some(Operand::Immediate(n)), rule) => match rule {
+                    OperandRule::Immediate => Ok(Some(n)),
+                    OperandRule::Register(k) if k.index.get() & 1 == 1 => Ok(Some(n)),
+                    _ => Err(Error::op_violation(OperandViolation::CannotUseImmediate)),
                 },
                 (Some(Operand::Label(l)), OperandRule::Immediate) => {
                     if let Some(n) = labels.tbl.get(&l).copied() {
-                        Ok(Some(n))
+                        if self.relative {
+                            Ok(Some(n.wrapping_sub(base_address)))
+                        } else {
+                            Ok(Some(n))
+                        }
                     } else {
-                        Err(Error::op_violation(OperandViolation::UnknownLabel(l.clone())))
+                        Err(Error::op_violation(OperandViolation::UnknownLabel(
+                            l.clone(),
+                        )))
                     }
-                },
-                (Some(Operand::Register(_)), _) => Err(Error::op_violation(OperandViolation::CannotUseRegister)),
-                (Some(Operand::Label(_)), _) => Err(Error::op_violation(OperandViolation::CannotUseLabel)),
+                }
+                (Some(Operand::Register(_)), _) => {
+                    Err(Error::op_violation(OperandViolation::CannotUseRegister))
+                }
+                (Some(Operand::Label(_)), _) => {
+                    Err(Error::op_violation(OperandViolation::CannotUseLabel))
+                }
                 (None, _) => Ok(None),
-            }).try_collect()?;
-        let mut result = self.code.clone();
+            })
+            .try_collect()?;
+        let mut result: Box<[u8]> = self.code.clone();
         for opr_code in &self.opr_code[..] {
             if let Some(n) = opr_bytes[opr_code.opr as usize] {
                 write_bits(&mut result, n, opr_code.position as usize, opr_code.length);
@@ -203,12 +256,68 @@ mod test {
     use super::*;
 
     #[test]
-    fn write_bits_test() {
-        let mut a = [0xf0u8; 8];
-        write_bits(&mut a, 0xfffcccccccc, 2, 30);
-        for byte in a {
-            print!("{:08b} ", byte);
+    fn assemble_test() {
+        let tables = Tables {
+            tbls: vec![
+                Table::from_slice(&[
+                    ("R0", 0),
+                    ("R1", 1),
+                    ("R2", 2),
+                    ("R3", 3),
+                    ("R4", 4),
+                    ("R5", 5),
+                ]),
+                Table::from_slice(&[("X0", 0), ("X1", 1), ("X2", 2)]),
+            ]
+            .into(),
+        };
+        let rule = Rule {
+            operands: vec![
+                OperandRule::Register(TableKey {
+                    index: NonZeroU64::new(0b10).unwrap(),
+                }),
+                OperandRule::Immediate,
+            ]
+            .into(),
+            code: Box::new([0xA0, 0x00, 0x00, 0x00]),
+            opr_code: Box::new([
+                OprCode {
+                    opr: 0,
+                    length: 3,
+                    position: 11,
+                },
+                OprCode {
+                    opr: 1,
+                    length: 16,
+                    position: 16,
+                },
+            ]),
+            relative: false,
+        };
+        let labels = LabelTable {
+            tbl: Default::default(),
+        };
+        let result = rule.assemble(
+            [
+                Some(Operand::Register("X0".to_owned().into())),
+                Some(Operand::Immediate(0x0f0f)),
+            ]
+            .into_iter(),
+            &tables,
+            &labels,
+            0,
+        );
+
+        match result {
+            Ok(result) => {
+                for byte in result.iter().copied() {
+                    print!("{:08b} ", byte);
+                }
+                println!();
+            },
+            Err(e) => {
+                println!("{}", e);
+            }
         }
-        println!();
     }
 }

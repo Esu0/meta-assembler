@@ -88,13 +88,19 @@ mod test {
         ];
         let i = a.into_iter().map(|t| Ok(t)).with_info("test");
         let mut parser = Parser::new(i);
-        assert_eq!(parser.next_node().unwrap().unwrap(), Node::Identifier("a".to_owned()));
+        assert_eq!(
+            parser.next_node().unwrap().unwrap(),
+            Node::Identifier("a".to_owned())
+        );
         assert_eq!(parser.next_node().unwrap().unwrap(), Node::Comma);
         assert_eq!(parser.next_node().unwrap().unwrap(), Node::Integer(1));
         assert_eq!(parser.next_node().unwrap().unwrap(), Node::Comma);
         assert_eq!(parser.next_node().unwrap().unwrap(), Node::Colon);
         assert_eq!(parser.next_number().unwrap(), 2);
         assert_eq!(parser.next_node().unwrap().unwrap(), Node::Semicolon);
-        assert_eq!(parser.next_number().unwrap_err().to_string(), "test: 予期せぬトークンbが検出されました。トークンIntegerが予測されます。");
+        assert_eq!(
+            parser.next_number().unwrap_err().to_string(),
+            "test: 予期せぬトークンbが検出されました。トークンIntegerが予測されます。"
+        );
     }
 }
