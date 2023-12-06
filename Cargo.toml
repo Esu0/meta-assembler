@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 utf8-chars = "3.0.1"
 thiserror = "1.0.50"
+itertools = "0.12.0"
