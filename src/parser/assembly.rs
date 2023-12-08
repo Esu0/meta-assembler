@@ -9,14 +9,17 @@ use std::{collections::HashMap, num::NonZeroU64};
 /// 以下の全てを満たすオペランドのルールが存在してはならない
 /// * オペランドにより定まるビットの長さがワードサイズの倍数でない
 /// * 即値またはラベルによる指定が可能である。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Rules {
     rules: HashMap<Box<str>, Rule>,
     general: GeneralRule,
 }
 
 impl Rules {
-    pub fn from_rules(rules: impl IntoIterator<Item = (Box<str>, Rule)>, general: GeneralRule) -> Self {
+    pub fn from_rules(
+        rules: impl IntoIterator<Item = (Box<str>, Rule)>,
+        general: GeneralRule,
+    ) -> Self {
         Self {
             rules: rules.into_iter().collect(),
             general,
@@ -71,7 +74,7 @@ pub struct OprCode {
 /// テーブルによる指定は通常、レジスタの指定などに使われるため、アドレスの指定に
 /// 使うことはないと判断している。そのため、
 /// テーブルによるオペランドの指定とラベルによるオペランドの指定は相容れないものとしている。
-/// 
+///
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum OperandRule {
     /// レジスタ指定など。ラベルを許さない。
@@ -105,7 +108,7 @@ impl TableKey {
             ind |= 1 << (i + 1);
         }
         Self {
-            index: NonZeroU64::new(ind).expect("indice slice must not be empty")
+            index: NonZeroU64::new(ind).expect("indice slice must not be empty"),
         }
     }
 }

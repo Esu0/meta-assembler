@@ -2,9 +2,9 @@
 
 use std::io;
 
-use crate::lex::token_gen::Token;
+use crate::lex::token_gen::{Token, TokenGeneratorTrait};
 
-use super::{Error, ErrorKind, IteratorWith};
+use super::{assembly::Rules, Error, ErrorKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Node {
@@ -32,45 +32,63 @@ impl From<Token> for Node {
     }
 }
 
-pub struct Parser<T: IteratorWith<Item = Result<Token, crate::lex::Error>>> {
+pub struct Parser<T: TokenGeneratorTrait> {
     token_generator: T,
+    rules: Rules,
 }
 
-impl<T: IteratorWith<Item = Result<Token, crate::lex::Error>>> Parser<T> {
+impl<T: TokenGeneratorTrait> Parser<T> {
     pub fn new(token_generator: T) -> Self {
-        Self { token_generator }
+        Self {
+            token_generator,
+            rules: Default::default(),
+        }
     }
 
-    fn next_node(&mut self) -> Option<Result<Node, Error>> {
-        self.token_generator
-            .next()
-            .map(|x| x.map(Node::from).map_err(super::Error::from))
-    }
-
-    fn next_number(&mut self) -> Result<u64, Error> {
-        if let Some(token) = self.token_generator.next() {
-            match token? {
-                Token::Integer(n) => Ok(n),
-                token => Err(Error::unexpected_token(
-                    "Integer".to_owned(),
-                    token,
-                    self.token_generator.info().to_string(),
-                )),
-            }
+    pub fn next_token(&mut self) -> Result<Token, Error> {
+        if let Some(t) = self.token_generator.next() {
+            Ok(t?)
         } else {
-            Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())
+            Err(Error::unexpected_eof(
+                self.token_generator.reader_position(),
+            ))
+        }
+    }
+
+    pub fn consume(
+        &mut self,
+        buf: &mut Token,
+        f: impl FnOnce(&Token) -> bool,
+    ) -> Result<Option<Token>, Error> {
+        if f(&*buf) {
+            Ok(Some(std::mem::replace(buf, self.next_token()?)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn consume_operator(&mut self, buf: &mut Token, op: char) -> Result<bool, Error> {
+        self.consume(buf, |t| match t {
+            Token::Opr(s) if s == &op.to_string() => true,
+            _ => false,
+        })
+        .map(|x| x.is_some())
+    }
+
+    pub fn general_config(&mut self, buf: &mut Token) -> Result<(), Error> {
+        if self.consume_operator(buf, '*')? {
+
         }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::super::IteratorExt;
     use super::*;
 
     #[test]
     fn parser_test() {
-        let a = vec![
+        let _a = vec![
             Token::Word("a".to_owned()),
             Token::Opr(",".to_owned()),
             Token::Integer(1),
@@ -86,21 +104,5 @@ mod test {
             Token::Integer(4),
             Token::Opr(";".to_owned()),
         ];
-        let i = a.into_iter().map(|t| Ok(t)).with_info("test");
-        let mut parser = Parser::new(i);
-        assert_eq!(
-            parser.next_node().unwrap().unwrap(),
-            Node::Identifier("a".to_owned())
-        );
-        assert_eq!(parser.next_node().unwrap().unwrap(), Node::Comma);
-        assert_eq!(parser.next_node().unwrap().unwrap(), Node::Integer(1));
-        assert_eq!(parser.next_node().unwrap().unwrap(), Node::Comma);
-        assert_eq!(parser.next_node().unwrap().unwrap(), Node::Colon);
-        assert_eq!(parser.next_number().unwrap(), 2);
-        assert_eq!(parser.next_node().unwrap().unwrap(), Node::Semicolon);
-        assert_eq!(
-            parser.next_number().unwrap_err().to_string(),
-            "test: 予期せぬトークンbが検出されました。トークンIntegerが予測されます。"
-        );
     }
 }

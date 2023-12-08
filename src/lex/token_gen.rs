@@ -222,6 +222,25 @@ impl<C: Iterator<Item = io::Result<char>>> Iterator for TokenGenerator<C> {
     }
 }
 
+pub trait TokenGeneratorTrait: Iterator<Item = Result<Token, super::Error>> {
+    fn reader_position(&self) -> (usize, usize);
+
+    /// 次のトークンが純粋な数字の列ならば、それを文字列として返す。
+    ///
+    /// それ以外のトークンならば、`Ok(Err(Token))`を返す。
+    fn expect_number(&mut self) -> Result<Result<Box<str>, Token>, super::Error>;
+
+    fn read_binary_number(&mut self) -> Result<Result<u64, Token>, super::Error> {
+        let s = self.expect_number()?;
+        match s {
+            Ok(s) => Ok(Ok(s.parse().map_err(|_| {
+                let (l, c) = self.reader_position();
+                super::Error::new_parse_int_error(l, c, s.into())
+            })?)),
+            Err(t) => Ok(Err(t)),
+        }
+    }
+}
 #[test]
 fn token_generator_test() {
     // 具体的なケースを入れてみる

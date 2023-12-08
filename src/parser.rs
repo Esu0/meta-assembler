@@ -7,21 +7,22 @@ use std::{fmt::Display, io};
 
 use thiserror::Error;
 
-use crate::lex::token_gen::{Token, TokenGenerator};
+use crate::lex::token_gen::Token;
 
 #[derive(Error, Debug)]
 pub enum ErrorKind {
     #[error("予期せぬトークン{found}が検出されました。トークン{expected}が予測されます。")]
-    UnexpectedToken { expected: String, found: String },
+    UnexpectedToken { expected: Box<str>, found: Box<str> },
     #[error("ファイルの終端に到達しました。")]
     UnexpectedEof,
 }
 
 #[derive(Error, Debug)]
-#[error("{info}: {kind}")]
+#[error("line {line}(column: {column}): {kind}")]
 struct ErrorSimple {
     kind: ErrorKind,
-    info: String,
+    line: usize,
+    column: usize,
 }
 
 #[derive(Error, Debug)]
@@ -58,20 +59,25 @@ impl Error {
         }
     }
 
-    pub fn new(kind: ErrorKind, info: String) -> Self {
+    pub fn new(kind: ErrorKind, line: usize, column: usize) -> Self {
         Self {
-            inner: ErrorInner::Simple(ErrorSimple { kind, info }),
+            inner: ErrorInner::Simple(ErrorSimple { kind, line, column }),
         }
     }
 
-    pub fn unexpected_token(expected: String, found: Token, info: String) -> Self {
+    pub fn unexpected_token(expected: String, found: Token, position: (usize, usize)) -> Self {
         Self::new(
             ErrorKind::UnexpectedToken {
-                expected,
-                found: token_to_string(found),
+                expected: expected.into(),
+                found: token_to_string(found).into(),
             },
-            info,
+            position.0,
+            position.1,
         )
+    }
+
+    pub fn unexpected_eof(position: (usize, usize)) -> Self {
+        Self::new(ErrorKind::UnexpectedEof, position.0, position.1)
     }
 }
 
@@ -91,60 +97,11 @@ impl From<io::Error> for Error {
     }
 }
 
-pub trait IteratorWith: Iterator {
-    type Info: Display;
-    fn info(&self) -> Self::Info;
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ReaderPos(usize, usize);
 
 impl Display for ReaderPos {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "line {}({})", self.0, self.1)
-    }
-}
-
-pub trait IteratorExt: Iterator {
-    fn with_info<Info>(self, info: Info) -> WithInfo<Self, Info>
-    where
-        Self: Sized,
-    {
-        WithInfo { iter: self, info }
-    }
-}
-
-pub struct WithInfo<I: Iterator, Info> {
-    iter: I,
-    info: Info,
-}
-
-impl<T: Iterator> IteratorExt for T {}
-
-impl<I: Iterator, Info> WithInfo<I, Info> {
-    pub fn info(&self) -> &Info {
-        &self.info
-    }
-}
-
-impl<I: Iterator, Info> Iterator for WithInfo<I, Info> {
-    type Item = I::Item;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next()
-    }
-}
-
-impl<C: Iterator<Item = io::Result<char>>> IteratorWith for TokenGenerator<C> {
-    type Info = ReaderPos;
-    fn info(&self) -> Self::Info {
-        let (l, c) = self.inner().position();
-        ReaderPos(l, c)
-    }
-}
-
-impl<I: Iterator, Info: Display + Clone> IteratorWith for WithInfo<I, Info> {
-    type Info = Info;
-    fn info(&self) -> Self::Info {
-        self.info.clone()
     }
 }
