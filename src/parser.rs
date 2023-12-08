@@ -13,6 +13,12 @@ use crate::lex::token_gen::Token;
 pub enum ErrorKind {
     #[error("予期せぬトークン{found}が検出されました。トークン{expected}が予測されます。")]
     UnexpectedToken { expected: Box<str>, found: Box<str> },
+    #[error("数値が範囲外です。範囲は{min}から{max}ですが、{found}が検出されました。")]
+    NumOutOfRange { min: u64, max: u64, found: u64 },
+    #[error("設定{found}は存在しません。")]
+    NonExsistentProperty { found: Box<str> },
+    #[error("設定{found}は既に存在します。")]
+    AlreadyExsistentProperty { found: Box<str> },
     #[error("ファイルの終端に到達しました。")]
     UnexpectedEof,
 }

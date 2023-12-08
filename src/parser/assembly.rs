@@ -15,25 +15,140 @@ pub struct Rules {
     general: GeneralRule,
 }
 
-impl Rules {
-    pub fn from_rules(
-        rules: impl IntoIterator<Item = (Box<str>, Rule)>,
-        general: GeneralRule,
-    ) -> Self {
-        Self {
-            rules: rules.into_iter().collect(),
-            general,
+#[derive(Debug, thiserror::Error)]
+#[error("設定{rule_name}は既に存在します。")]
+pub struct DoubleDefinitionError {
+    rule_name: Box<str>,
+}
+
+impl From<DoubleDefinitionError> for super::ErrorKind {
+    fn from(value: DoubleDefinitionError) -> Self {
+        Self::AlreadyExsistentProperty {
+            found: value.rule_name,
         }
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RulesConfig {
+    rules: HashMap<Box<str>, Rule>,
+}
+
+impl GeneralRuleConfig {
+    fn set_value(dst: &mut Option<u8>, src: u8) -> Result<(), DoubleDefinitionError> {
+        if let Some(dst) = dst {
+            Err(DoubleDefinitionError {
+                rule_name: "general".into(),
+            })
+        } else {
+            *dst = Some(src);
+            Ok(())
+        }
+    }
+    pub fn set_word_size(&mut self, word_size: u8) -> Result<(), DoubleDefinitionError> {
+        Self::set_value(&mut self.word_size, word_size)
+    }
+
+    pub fn set_address_size(&mut self, address_size: u8) -> Result<(), DoubleDefinitionError> {
+        Self::set_value(&mut self.address_size, address_size)
+    }
+
+    pub fn set_address_mode(&mut self, address_mode: u8) -> Result<(), DoubleDefinitionError> {
+        Self::set_value(&mut self.address_mode, address_mode)
+    }
+
+    pub fn set_empty_symbol_mode(
+        &mut self,
+        empty_symbol_mode: u8,
+    ) -> Result<(), DoubleDefinitionError> {
+        Self::set_value(&mut self.empty_symbol_mode, empty_symbol_mode)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct GeneralRuleConfig {
+    pub word_size: Option<u8>,
+    pub address_size: Option<u8>,
+    pub address_mode: Option<u8>,
+    pub empty_symbol_mode: Option<u8>,
+}
+
 /// 一般的な規則の定義
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GeneralRule {
-    pub word_size: u8,
-    pub address_size: u8,
-    pub address_mode: u8,
-    pub empty_symbol_mode: u8,
+struct GeneralRule {
+    word_size: u8,
+    address_size: u8,
+    address_mode: u8,
+    empty_symbol_mode: u8,
+}
+
+impl From<GeneralRuleConfig> for GeneralRule {
+    fn from(value: GeneralRuleConfig) -> Self {
+        Self {
+            word_size: value.word_size.unwrap_or(8),
+            address_size: value.address_size.unwrap_or(16),
+            address_mode: value.address_mode.unwrap_or(2),
+            empty_symbol_mode: value.empty_symbol_mode.unwrap_or(0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SyntaxRuleConfig {
+    pub org: Option<Box<str>>,
+    pub end: Option<Box<str>>,
+    pub equ: Option<Box<str>>,
+    pub db: Option<Box<str>>,
+    pub ds: Option<Box<str>>,
+    pub dc: Option<Box<str>>,
+    pub code_dot: Option<char>,
+    pub operand_dot: Option<char>,
+    pub dc_dot: Option<char>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SyntaxRule {
+    org: Box<str>,
+    end: Box<str>,
+    equ: Option<Box<str>>,
+    db: Option<Box<str>>,
+    ds: Option<Box<str>>,
+    dc: Option<Box<str>>,
+    code_dot: char,
+    operand_dot: char,
+    dc_dot: char,
+}
+
+impl From<SyntaxRuleConfig> for SyntaxRule {
+    fn from(value: SyntaxRuleConfig) -> Self {
+        Self {
+            org: value.org.unwrap_or_else(|| "ORG".into()),
+            end: value.end.unwrap_or_else(|| "END".into()),
+            equ: value.equ,
+            db: value.db,
+            ds: value.ds,
+            dc: value.dc,
+            code_dot: value.code_dot.unwrap_or('.'),
+            operand_dot: value.operand_dot.unwrap_or(','),
+            dc_dot: value.dc_dot.unwrap_or('"'),
+        }
+    }
+}
+
+impl Default for SyntaxRule {
+    fn default() -> Self {
+        Self {
+            org: "ORG".into(),
+            end: "END".into(),
+            equ: None,
+            db: None,
+            ds: None,
+            dc: None,
+            code_dot: '.',
+            operand_dot: ',',
+            dc_dot: '"',
+        }
+    }
 }
 
 impl Default for GeneralRule {
@@ -211,7 +326,7 @@ impl Rule {
         labels: &LabelTable,
         base_address: u64,
         general_rule: &GeneralRule,
-    ) -> Result<Box<[u8]>> {
+    ) -> Result<Box<[u8]>, Error> {
         let opr_bytes: Vec<Option<(u64, bool)>> = operands
             .zip(self.operands.iter())
             .map(|(opr, rule)| match (opr, rule) {
@@ -280,8 +395,6 @@ pub struct Parser<T> {
 }
 
 use thiserror::Error;
-
-type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Error)]
 pub enum ErrorKind {
