@@ -23,6 +23,17 @@ pub enum Token {
     NewLine,
 }
 
+impl From<Token> for String {
+    fn from(value: Token) -> Self {
+        match value {
+            Token::Integer(n) => n.to_string(),
+            Token::Opr(s) => s,
+            Token::Word(s) => s,
+            Token::NewLine => "\\n".to_string(),
+        }
+    }
+}
+
 impl Token {
     fn is_opr(c: char) -> bool {
         OPERATORS.contains(&c)
@@ -218,6 +229,28 @@ impl<C: Iterator<Item = io::Result<char>>> Iterator for TokenGenerator<C> {
                 ))),
                 _ => unreachable!(),
             },
+        }
+    }
+}
+
+/// TokenGeneratorの機能を分離したトレイト
+pub trait TokenGeneratorTrait: Iterator<Item = Result<Token, super::Error>> {
+    /// ファイルなどの現在の読み取り位置を返す
+    fn reader_position(&self) -> (usize, usize);
+
+    /// 次のトークンが純粋な数字の列ならば、それを文字列として返す。
+    ///
+    /// それ以外のトークンならば、`Ok(Err(Some(Token)))`、EOFなら`Ok(Err(None))`を返す。
+    fn expect_number_as_string(&mut self) -> Result<Result<Box<str>, Option<Token>>, super::Error>;
+
+    fn read_binary_number(&mut self) -> Result<Result<u64, Option<Token>>, super::Error> {
+        let s = self.expect_number_as_string()?;
+        match s {
+            Ok(s) => Ok(Ok(s.parse().map_err(|_| {
+                let (l, c) = self.reader_position();
+                super::Error::new_parse_int_error(l, c, s.into())
+            })?)),
+            Err(t) => Ok(Err(t)),
         }
     }
 }
