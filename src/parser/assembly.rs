@@ -1,7 +1,7 @@
 //! アセンブリの構文解析
 
 use itertools::Itertools;
-use std::{collections::HashMap, num::NonZeroU64};
+use std::{collections::HashMap, num::NonZeroU64, default};
 /// アセンブリのコード生成ルール全体を表す。
 /// ニーモニック一つにルール一つが対応するようになっている。
 /// # 注意
@@ -15,8 +15,7 @@ pub struct Rules {
     general: GeneralRule,
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("設定{rule_name}は既に存在します。")]
+#[derive(Debug)]
 pub struct DoubleDefinitionError {
     rule_name: Box<str>,
 }
@@ -32,6 +31,14 @@ impl From<DoubleDefinitionError> for super::ErrorKind {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RulesConfig {
     rules: HashMap<Box<str>, Rule>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct GeneralRuleConfig {
+    pub word_size: Option<u8>,
+    pub address_size: Option<u8>,
+    pub address_mode: Option<u8>,
+    pub empty_symbol_mode: Option<u8>,
 }
 
 impl GeneralRuleConfig {
@@ -65,14 +72,6 @@ impl GeneralRuleConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct GeneralRuleConfig {
-    pub word_size: Option<u8>,
-    pub address_size: Option<u8>,
-    pub address_mode: Option<u8>,
-    pub empty_symbol_mode: Option<u8>,
-}
-
 /// 一般的な規則の定義
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct GeneralRule {
@@ -89,6 +88,17 @@ impl From<GeneralRuleConfig> for GeneralRule {
             address_size: value.address_size.unwrap_or(16),
             address_mode: value.address_mode.unwrap_or(2),
             empty_symbol_mode: value.empty_symbol_mode.unwrap_or(0),
+        }
+    }
+}
+
+impl Default for GeneralRule {
+    fn default() -> Self {
+        Self {
+            word_size: 8,
+            address_size: 16,
+            address_mode: 2,
+            empty_symbol_mode: 0,
         }
     }
 }
@@ -147,17 +157,6 @@ impl Default for SyntaxRule {
             code_dot: '.',
             operand_dot: ',',
             dc_dot: '"',
-        }
-    }
-}
-
-impl Default for GeneralRule {
-    fn default() -> Self {
-        Self {
-            word_size: 8,
-            address_size: 16,
-            address_mode: 2,
-            empty_symbol_mode: 0,
         }
     }
 }
@@ -226,6 +225,13 @@ impl TableKey {
             index: NonZeroU64::new(ind).expect("indice slice must not be empty"),
         }
     }
+
+    pub fn add_index(&mut self, index: u8) {
+        if index >= 63 {
+            panic!("index must be less than 63");
+        }
+        self.index = NonZeroU64::new(self.index.get() | 1 << (index + 1)).unwrap();
+    }
 }
 
 struct TableKeyIndice {
@@ -253,20 +259,93 @@ pub struct Tables {
     tbls: Box<[Table]>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Table {
     // R0,R1などの名前と値の対応
     tbl: HashMap<Box<str>, u64>,
 }
 
 impl Table {
-    pub fn from_slice(slc: &[(&str, u64)]) -> Self {
+    fn from_slice(slc: &[(&str, u64)]) -> Self {
         Self {
             tbl: slc.iter().map(|(k, v)| (k.to_owned().into(), *v)).collect(),
         }
     }
+
+    pub fn new() -> Self {
+        Self {tbl: HashMap::new()}
+    }
+
+    pub fn add(&mut self, name: Box<str>, val: u64) -> Result<(), DoubleDefinitionError> {
+        if self.tbl.contains_key(name.as_ref()) {
+            Err(DoubleDefinitionError {
+                rule_name: name
+            })
+        } else {
+            self.tbl.insert(name, val);
+            Ok(())
+        }
+    }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TablesConfig {
+    tbls: Vec<Table>,
+    names: HashMap<Box<str>, usize>,
+}
+
+impl TablesConfig {
+    pub fn add_table(&mut self, name: Box<str>, tbl: Table) -> Result<(), tables::Error> {
+        if self.names.contains_key(name.as_ref()) {
+            Err(DoubleDefinitionError {
+                rule_name: name
+            }.into())
+        } else {
+            self.names.insert(name, self.tbls.len());
+            self.tbls.push(tbl);
+            if self.tbls.len() >= 64 {
+                Err(tables::Error::TooManyTables)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    pub fn get_index<Q>(&self, name: &Q) -> Option<u8> 
+    where
+        Box<str>: std::borrow::Borrow<Q>,
+        Q: std::hash::Hash + Eq + ?Sized,
+    {
+        self.names.get(name).map(|i| *i as u8)
+    }
+}
+
+pub mod tables {
+    use crate::parser::ErrorKind;
+
+    #[derive(Debug)]
+    pub enum Error {
+        DoubleDefinitionError(super::DoubleDefinitionError),
+        TooManyTables,
+    }
+
+    impl From<super::DoubleDefinitionError> for Error {
+        fn from(value: super::DoubleDefinitionError) -> Self {
+            Self::DoubleDefinitionError(value)
+        }
+    }
+
+    impl From<Error> for ErrorKind {
+        fn from(value: Error) -> Self {
+            match value {
+                Error::DoubleDefinitionError(e) => Self::AlreadyExsistentProperty {
+                    found: e.rule_name,
+                },
+                Error::TooManyTables => Self::TooManyTables,
+            }
+        }
+    }
+}
 enum Operand {
     Register(Box<str>),
     Immediate(u64),

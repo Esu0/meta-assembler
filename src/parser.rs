@@ -19,6 +19,8 @@ pub enum ErrorKind {
     NonExsistentProperty { found: Box<str> },
     #[error("設定{found}は既に存在します。")]
     AlreadyExsistentProperty { found: Box<str> },
+    #[error("テーブルの数が最大数を超えました。テーブルは最大63個です。")]
+    TooManyTables,
     #[error("ファイルの終端に到達しました。")]
     UnexpectedEof,
 }
