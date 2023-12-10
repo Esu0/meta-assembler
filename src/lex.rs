@@ -3,6 +3,7 @@
 pub mod ast;
 pub mod char_gen;
 pub mod token_gen;
+pub mod word_gen;
 
 use thiserror::Error;
 
