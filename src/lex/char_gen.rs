@@ -34,7 +34,6 @@ impl<C: Iterator<Item = io::Result<char>>> CharGenerator<C> {
 }
 
 impl<'a, R: BufRead> CharGenerator<utf8_chars::Chars<'a, R>> {
-    /// panicする可能性があるので、テスト時のみ使用
     pub fn new(reader: &'a mut R) -> Self {
         let mut chars = reader.chars();
         Self {
@@ -94,7 +93,7 @@ pub trait CharGeneratorTrait {
         Chars { inner: self }
     }
 
-    /// predicateがfalseを返すまでの文字を取り出す。
+    /// `predicate`が`false`を返すまでの文字を取り出す。
     fn take_while<P>(&mut self, predicate: P) -> TakeWhile<Self, P>
     where
         P: FnMut(char) -> bool,
@@ -105,6 +104,7 @@ pub trait CharGeneratorTrait {
         }
     }
 
+    /// `predicate`に`self`を使いたい場合に使う。`self`を使わない場合は`take_while`関数を使う。
     fn take_while_with_self<P>(&mut self, predicate: P) -> TakeWhileWithSelf<Self, P>
     where
         P: FnMut(&mut Self, char) -> bool,
@@ -115,7 +115,7 @@ pub trait CharGeneratorTrait {
         }
     }
 
-    /// predicateがtrueを返している間、文字をスキップする。
+    /// `predicate`が`true`を返している間、文字をスキップする。
     fn skip_while<P>(&mut self, mut predicate: P)
     where
         P: FnMut(Result<char, EncodeError>) -> bool,
@@ -145,7 +145,7 @@ pub trait CharGeneratorTrait {
         }
     }
 
-    /// fを満たす文字を読み飛ばす。
+    /// `f`を満たす文字を読み飛ばす。
     fn consume_with<F: FnOnce(char) -> bool>(&mut self, f: F) -> bool {
         if let Some(Ok(c)) = self.peek() {
             if f(c) {

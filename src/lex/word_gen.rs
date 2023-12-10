@@ -130,8 +130,8 @@ pub trait WordGeneratorTrait: CharGeneratorTrait {
     /// 区切り文字であるかどうかを判定する。
     fn is_separator(&self, c: char) -> bool;
 
-    /// 改行以外の空白文字を無視し、Word単位に分割して読み進める。
-    /// Wordは、改行、区切り文字、単語の3種類がある。
+    /// 改行以外の空白文字を無視し、`Word`単位に分割して読み進める。
+    /// `Word`は、改行、区切り文字、単語の3種類がある。
     fn next_word(&mut self) -> Option<Result<Word, EncodeError>> {
         self.skip_spaces();
         self.next_char().map(|x| match x {
@@ -154,12 +154,12 @@ pub trait WordGeneratorTrait: CharGeneratorTrait {
         super::Error::new_encode_error(line, column)
     }
 
-    /// Wordのイテレータを返す。
+    /// `Word`のイテレータを返す。
     fn words(&mut self) -> Words<Self> {
         Words { word_gen: self }
     }
 
-    /// 次に来るWordが単語なら、その単語を返す。
+    /// 次に来る`Word`が単語なら、その単語を返す。
     fn expect_word(&mut self) -> Result<Box<str>, Option<Result<Word, EncodeError>>> {
         match self.next_word() {
             Some(Ok(Word::Word(w))) => Ok(w),
