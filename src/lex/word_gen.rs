@@ -45,23 +45,27 @@ impl Separators {
 
     fn default_separators() -> &'static [char] {
         &[
-            ',', '$', '!', '?', '(', ')', '[', ']', '{', '}', '<', '>', '=', '+', '-', '*', '/',
-            '%', '^', '&', '|', '~', '@', '#', ';', ':', '.', '"', '\'', '`', '\\',
+            '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', ':', ';',
+            '<', '=', '>', '?', '@', '[', '\\', ']', '^', '`', '{', '|', '}', '~',
         ]
+    }
+
+    fn is_default_separator(c: char) -> bool {
+        matches!(c, '!'..='/' | ':'..='@' | '['..='^' | '`' | '{'..='~')
     }
 
     pub fn is_separator(&self, c: char) -> bool {
         if let Some(inner) = &self.inner {
             inner.contains(&c)
         } else {
-            Self::default_separators().contains(&c)
+            Self::is_default_separator(c)
         }
     }
 
     pub fn remove(&mut self, separator: char) {
         if let Some(inner) = &mut self.inner {
             inner.remove(&separator);
-        } else if Self::default_separators().contains(&separator) {
+        } else if Self::is_default_separator(separator) {
             self.inner = Some(
                 Self::default_separators()
                     .iter()
@@ -95,10 +99,7 @@ impl<C: CharGeneratorTrait> WordGenerator<C> {
     }
 
     pub fn default_separators() -> &'static [char] {
-        &[
-            ',', '$', '!', '?', '(', ')', '[', ']', '{', '}', '<', '>', '=', '+', '-', '*', '/',
-            '%', '^', '&', '|', '~', '@', '#', ';', ':', '.', '"', '\'', '`', '\\',
-        ]
+        Separators::default_separators()
     }
 
     pub fn remove_separator(&mut self, separator: char) {
@@ -172,11 +173,13 @@ pub trait WordGeneratorTrait: CharGeneratorTrait {
     fn consume_word(&mut self) -> Option<Box<str>> {
         self.skip_spaces();
         match self.peek() {
-            Some(Ok(c)) if !(c == '\n' || self.is_separator(c)) => {
-                Some(self.take_while_with_self(|this, c| {
+            Some(Ok(c)) if !(c == '\n' || self.is_separator(c)) => Some(
+                self.take_while_with_self(|this, c| {
                     !(this.is_separator(c) || c.is_ascii_whitespace())
-                }).collect::<String>().into_boxed_str())
-            },
+                })
+                .collect::<String>()
+                .into_boxed_str(),
+            ),
             _ => None,
         }
     }
