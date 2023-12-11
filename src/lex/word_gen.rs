@@ -166,6 +166,20 @@ pub trait WordGeneratorTrait: CharGeneratorTrait {
             w => Err(w),
         }
     }
+
+    /// 次に単語が来る場合は、その単語を返し、そうでない場合は読み進めずに`None`を返す。
+    /// 先頭の改行以外の空白文字は読み進められる。
+    fn consume_word(&mut self) -> Option<Box<str>> {
+        self.skip_spaces();
+        match self.peek() {
+            Some(Ok(c)) if !(c == '\n' || self.is_separator(c)) => {
+                Some(self.take_while_with_self(|this, c| {
+                    !(this.is_separator(c) || c.is_ascii_whitespace())
+                }).collect::<String>().into_boxed_str())
+            },
+            _ => None,
+        }
+    }
 }
 
 pub struct Words<'a, W: WordGeneratorTrait + ?Sized> {
@@ -192,8 +206,9 @@ mod test {
         assert_eq!(gen.next_word(), Some(Ok(Word::Word("abc".into()))));
         assert_eq!(gen.next_word(), Some(Ok(Word::Word("def".into()))));
 
-        let mut buf = b"abc def\xFF ieo,;:@ovd123+233@0_0)".as_ref();
-        let mut gen = CharGenerator::new(&mut buf).into_word_generator();
+        let buf = b"abc def\xFF ieo,;:@ovd123+233@0_0)".as_ref();
+        let mut tmp = buf;
+        let mut gen = CharGenerator::new(&mut tmp).into_word_generator();
         assert_eq!(gen.expect_word(), Ok("abc".into()));
         assert_eq!(gen.expect_word(), Ok("def".into()));
         assert_eq!(gen.expect_word(), Err(Some(Err(EncodeError))));
@@ -207,6 +222,12 @@ mod test {
         gen.skip_while(|c| c != Ok('@'));
         assert!(gen.consume('@'));
 
+        tmp = buf;
+        let mut gen = CharGenerator::new(&mut tmp).into_word_generator();
+        assert_eq!(gen.consume_word(), Some("abc".into()));
+        assert_eq!(gen.consume_word(), Some("def".into()));
+        assert_eq!(gen.consume_word(), None);
+        assert_eq!(gen.next_word(), Some(Err(EncodeError)));
         // println!("WordGeneratorTrait::expect_wordが返す値のサイズ: {} byte", std::mem::size_of_val(&gen.expect_word()));
     }
 }
