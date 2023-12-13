@@ -2,10 +2,10 @@
 
 use std::borrow::Borrow;
 
-use crate::{lex::{token_gen::{Token, TokenGeneratorTrait}, char_gen::EncodeError}, parser::assembly::Table};
+use crate::{lex::{token_gen::{Token, TokenGeneratorTrait}, char_gen::EncodeError, word_gen::Word}, parser::assembly::Table};
 
 use super::{
-    assembly::{GeneralRuleConfig, SyntaxRuleConfig, RulesConfig, TablesConfig, TableKey},
+    assembly::{GeneralRuleConfig, SyntaxRuleConfig, RulesConfig, TablesConfig, TableKey, table_key},
     Error, ErrorKind,
 };
 
@@ -20,12 +20,19 @@ pub enum Node {
 }
 
 trait TokenGeneratorTraitExt: TokenGeneratorTrait {
-    fn expect_number_or_word(&mut self) -> Result<Box<str>, ErrorKind> {
+    fn expect_number_or_identifier(&mut self) -> Result<Box<str>, ErrorKind> {
         match self.expect_number_as_string()? {
             Ok(s) => Ok(s),
             Err(Some(Token::Word(s))) => Ok(s.into()),
             Err(Some(t)) => Err(ErrorKind::unexpected_token("IDENTIFIER or NUMBER".into(), t)),
             Err(None) => Err(ErrorKind::UnexpectedEof),
+        }
+    }
+
+    fn expect_identifier(&mut self) -> Result<Box<str>, ErrorKind> {
+        match self.expect_token()? {
+            Token::Word(s) => Ok(s.into()),
+            t => Err(ErrorKind::unexpected_token("IDENTIFIER".into(), t)),
         }
     }
 
@@ -58,6 +65,19 @@ trait TokenGeneratorTraitExt: TokenGeneratorTrait {
             },
             Some(Err(_)) => Err(EncodeError),
             _ => Ok(false),
+        }
+    }
+
+    fn consume_identifier(&mut self) -> Option<Box<str>> {
+        self.skip_spaces();
+        match self.peek() {
+            Some(Ok(c)) if !(self.is_separator(c) || c.is_ascii_digit()) => {
+                match self.next_word() {
+                    Some(Ok(Word::Word(s))) => Some(s.into()),
+                    _ => panic!("next_word() returned non-word token when peeked word."),
+                }
+            },
+            _ => None,
         }
     }
 
@@ -203,7 +223,28 @@ impl<T: TokenGeneratorTrait> Parser<T> {
         }
     }
 
+    pub fn pgrm(&mut self) -> Result<(), ErrorKind> {
+        loop {
+            self.token_generator.skip_whitespaces();
+            if self.token_generator.consume_operator('#')? {
+                let i = self.token_generator.expect_identifier()?;
+                match i.as_ref() {
+                    "general_definition" | "table_definition" | "end" => {},
+                    "rule_definition" => break,
+                    _ => return Err(ErrorKind::UnexpectedToken { expected: "general_definition, table_definition, etc...".into(), found: i })
+                }
+            } else {
+                self.configulation()?;
+            }
+        }
+        while self.token_generator.peek().is_some() {
+            self.rule_definitions()?;
+        }
+        Ok(())
+    }
+
     pub fn configulation(&mut self) -> Result<(), ErrorKind> {
+        self.token_generator.skip_whitespaces();
         if self.token_generator.consume_operator('*')? {
             let s = self.expect_word_with("word_size, address_size, etc...".to_owned())?;
             let s_str = s.as_ref();
@@ -278,7 +319,7 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                 }
                 "table" => {
                     // table definition
-                    let name = self.token_generator.expect_number_or_word()?;
+                    let name = self.token_generator.expect_number_or_identifier()?;
                     let mut table = Table::new();
                     while let Some((name, val)) = self.stmt_define_table()? {
                         table.add(name, val)?;
@@ -294,7 +335,9 @@ impl<T: TokenGeneratorTrait> Parser<T> {
     }
 
     fn stmt_define_table(&mut self) -> Result<Option<(Box<str>, u64)>, ErrorKind> {
+        self.token_generator.skip_whitespaces();
         if let Some(name) = self.token_generator.consume_word() {
+            self.token_generator.skip_whitespaces();
             Ok(Some((name, self.expect_number()?)))
         } else {
             Ok(None)
@@ -302,7 +345,7 @@ impl<T: TokenGeneratorTrait> Parser<T> {
     }
 
     fn rule_definitions(&mut self) -> Result<(), ErrorKind> {
-        let mut tokens = &mut self.token_generator;
+        let tokens = &mut self.token_generator;
         tokens.skip_whitespaces();
         if tokens.consume_operator('*')? {
             tokens.expect_word_of("use_tables")?;
@@ -310,9 +353,21 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                 let Some(i) = self.tables.get_index(&name) else {
                     return Err(ErrorKind::TableNotFound { found: name });
                 };
-                
+                table_key::add_index(&mut self.default_tables, i);
+                if !tokens.consume_operator(',')? {
+                    break;
+                }
             }
+        } else if tokens.consume_operator('#')? {
+            let i = tokens.expect_identifier()?;
+            return match i.as_ref() {
+                "end" => Ok(()),
+                _ => Err(ErrorKind::UnexpectedToken { expected: "end".into(), found: i }),
+            };
+        } else if let Some(i) = tokens.consume_identifier() {
+            // add rule
         }
+        Ok(())
     }
 }
 
