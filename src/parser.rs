@@ -3,11 +3,11 @@
 pub mod assembly;
 pub mod cgr;
 
-use std::{fmt::Display, io};
+use std::{fmt::Display, io, error};
 
 use thiserror::Error;
 
-use crate::lex::token_gen::Token;
+use crate::lex::{token_gen::Token, char_gen::EncodeError};
 
 #[derive(Error, Debug)]
 pub enum ErrorKind {
@@ -23,6 +23,23 @@ pub enum ErrorKind {
     TooManyTables,
     #[error("ファイルの終端に到達しました。")]
     UnexpectedEof,
+    #[error(transparent)]
+    EncodeError(#[from] EncodeError),
+    #[error(transparent)]
+    LexicalError(#[from] crate::lex::Error),
+}
+
+impl ErrorKind {
+    pub fn unexpected_token(expected: String, found: Token) -> Self {
+        Self::UnexpectedToken {
+            expected: expected.into_boxed_str(),
+            found: String::from(found).into_boxed_str(),
+        }
+    }
+
+    pub fn num_out_of_range(min: u64, max: u64, found: u64) -> Self {
+        Self::NumOutOfRange { min, max, found }
+    }
 }
 
 #[derive(Error, Debug)]
