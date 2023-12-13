@@ -1,8 +1,10 @@
 use std::io;
 
-use super::char_gen::CharGenerator;
+use super::{char_gen::CharGenerator, word_gen::WordGeneratorTrait};
 
 /// 演算子のリスト
+/// 
+/// 代わりにSeparatorを使うので、後で削除
 const OPERATORS: [char; 9] = ['#', '*', ';', '(', ')', '[', ']', ':', ','];
 
 // トークン型のvariantの型は要検討
@@ -234,14 +236,19 @@ impl<C: Iterator<Item = io::Result<char>>> Iterator for TokenGenerator<C> {
 }
 
 /// TokenGeneratorの機能を分離したトレイト
-pub trait TokenGeneratorTrait: Iterator<Item = Result<Token, super::Error>> {
-    /// ファイルなどの現在の読み取り位置を返す
-    fn reader_position(&self) -> (usize, usize);
+pub trait TokenGeneratorTrait: WordGeneratorTrait {
+    /// 次のトークンを返す。
+    /// OperatorはSeparatorと同じでよい。
+    fn next_token(&mut self) -> Option<Result<Token, super::Error>> {
+        todo!("implement next_token")
+    }
 
     /// 次のトークンが純粋な数字の列ならば、それを文字列として返す。
     ///
     /// それ以外のトークンならば、`Ok(Err(Some(Token)))`、EOFなら`Ok(Err(None))`を返す。
-    fn expect_number_as_string(&mut self) -> Result<Result<Box<str>, Option<Token>>, super::Error>;
+    fn expect_number_as_string(&mut self) -> Result<Result<Box<str>, Option<Token>>, super::Error> {
+        todo!("implement expect_number_as_string")
+    }
 
     fn read_binary_number(&mut self) -> Result<Result<u64, Option<Token>>, super::Error> {
         let s = self.expect_number_as_string()?;
