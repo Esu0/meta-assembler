@@ -8,38 +8,30 @@ pub mod word_gen;
 use thiserror::Error;
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
-enum _Error {
+pub enum ErrorKind {
     /// オーバーフローを含む
-    #[error("line {line}(column={column}): Token \"{token}\" cannot parse to integer.")]
-    ParseIntError {
-        line: usize,
-        column: usize,
-        token: String,
-    },
-    #[error("line {line}(column={column}): encoding error.")]
-    EncodeError { line: usize, column: usize },
+    #[error("Token \"{token}\" cannot parse to integer.")]
+    ParseIntError { token: String },
+    #[error("encoding error.")]
+    EncodeError,
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 #[error(transparent)]
 pub struct Error {
     #[from]
-    inner: _Error,
+    inner: ErrorKind,
 }
 
 impl Error {
-    fn new_parse_int_error(line: usize, column: usize, token: String) -> Self {
+    fn new_parse_int_error(_: usize, _: usize, token: String) -> Self {
         Self {
-            inner: _Error::ParseIntError {
-                line,
-                column,
-                token,
-            },
+            inner: ErrorKind::ParseIntError { token },
         }
     }
-    fn new_encode_error(line: usize, column: usize) -> Self {
+    fn new_encode_error(_: usize, _: usize) -> Self {
         Self {
-            inner: _Error::EncodeError { line, column },
+            inner: ErrorKind::EncodeError,
         }
     }
 }
@@ -51,15 +43,10 @@ mod test {
     #[test]
     fn error_test() {
         let e = Error {
-            inner: _Error::ParseIntError {
-                line: 1,
-                column: 1,
+            inner: ErrorKind::ParseIntError {
                 token: "100a".to_owned(),
             },
         };
-        assert_eq!(
-            e.to_string(),
-            "line 1(column=1): Token \"100a\" cannot parse to integer."
-        );
+        assert_eq!(e.to_string(), "Token \"100a\" cannot parse to integer.");
     }
 }

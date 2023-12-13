@@ -3,7 +3,7 @@ use std::io;
 use super::{char_gen::CharGenerator, word_gen::WordGeneratorTrait};
 
 /// 演算子のリスト
-/// 
+///
 /// 代わりにSeparatorを使うので、後で削除
 const OPERATORS: [char; 9] = ['#', '*', ';', '(', ')', '[', ']', ':', ','];
 
@@ -12,7 +12,7 @@ const OPERATORS: [char; 9] = ['#', '*', ';', '(', ')', '[', ']', ':', ','];
 // Wordのvariantの型: String, Vec<char>
 // Oprのvariantの型: String, ShortVec<char, 3>, [char; 3]など
 /// トークン型
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Token {
     // token kinds
     /// 整数
