@@ -240,14 +240,14 @@ pub trait TokenGeneratorTrait: WordGeneratorTrait {
     /// 次のトークンを返す。
     /// OperatorはSeparatorと同じでよい。
     fn next_token(&mut self) -> Option<Result<Token, super::Error>> {
-        todo!("implement next_token")
+        todo!("next_token")
     }
 
     /// 次のトークンが純粋な数字の列ならば、それを文字列として返す。
     ///
     /// それ以外のトークンならば、`Ok(Err(Some(Token)))`、EOFなら`Ok(Err(None))`を返す。
     fn expect_number_as_string(&mut self) -> Result<Result<Box<str>, Option<Token>>, super::Error> {
-        todo!("implement expect_number_as_string")
+        todo!("expect_number_as_string")
     }
 
     fn read_binary_number(&mut self) -> Result<Result<u64, Option<Token>>, super::Error> {
