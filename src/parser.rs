@@ -23,6 +23,8 @@ pub enum ErrorKind {
     TooManyTables,
     #[error("ファイルの終端に到達しました。")]
     UnexpectedEof,
+    #[error("テーブル{found}が定義されていません。")]
+    TableNotFound{ found: Box<str> },
     #[error(transparent)]
     EncodeError(#[from] EncodeError),
     #[error(transparent)]

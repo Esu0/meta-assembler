@@ -1,5 +1,7 @@
 //! コード生成ルールファイルの構文解析
 
+use std::borrow::Borrow;
+
 use crate::{lex::{token_gen::{Token, TokenGeneratorTrait}, char_gen::EncodeError}, parser::assembly::Table};
 
 use super::{
@@ -56,6 +58,36 @@ trait TokenGeneratorTraitExt: TokenGeneratorTrait {
             },
             Some(Err(_)) => Err(EncodeError),
             _ => Ok(false),
+        }
+    }
+
+    fn expect_token(&mut self) -> Result<Token, ErrorKind> {
+        match self.next_token() {
+            Some(t) => Ok(t?),
+            None => Err(ErrorKind::UnexpectedEof),
+        }
+    }
+
+    fn expect_number(&mut self) -> Result<u64, ErrorKind> {
+        match self.expect_token()? {
+            Token::Integer(n) => Ok(n),
+            t => Err(ErrorKind::unexpected_token("number".to_owned(), t)),
+        }
+    }
+
+    fn expect_number_in_range(&mut self, min: u64, max: u64) -> Result<u64, ErrorKind> {
+        let n = self.expect_number()?;
+        if n < min || n > max {
+            Err(ErrorKind::num_out_of_range(min, max, n))
+        } else {
+            Ok(n)
+        }
+    }
+
+    fn expect_word_of<S: Borrow<str> + ?Sized>(&mut self, w: &S) -> Result<(), ErrorKind> {
+        match self.expect_token()? {
+            Token::Word(s) if s.as_str() == w.borrow() => Ok(()),
+            t => Err(ErrorKind::unexpected_token(w.borrow().to_owned(), t))
         }
     }
 }
@@ -171,25 +203,6 @@ impl<T: TokenGeneratorTrait> Parser<T> {
         }
     }
 
-    fn unexpected_token(&self, expected: String, found: Token) -> Error {
-        Error::unexpected_token(expected, found, self.token_generator.reader_position())
-    }
-
-    fn unexpected_eof(&self) -> Error {
-        Error::unexpected_eof(self.token_generator.reader_position())
-    }
-
-    fn num_out_of_range(&self, min: u64, max: u64, found: u64) -> Error {
-        let (line, column) = self.token_generator.reader_position();
-        Error {
-            inner: super::ErrorInner::Simple(super::ErrorSimple {
-                kind: ErrorKind::NumOutOfRange { min, max, found },
-                line,
-                column,
-            }),
-        }
-    }
-
     pub fn configulation(&mut self) -> Result<(), ErrorKind> {
         if self.token_generator.consume_operator('*')? {
             let s = self.expect_word_with("word_size, address_size, etc...".to_owned())?;
@@ -204,12 +217,10 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                     u8,
                 ) -> Result<(), super::assembly::DoubleDefinitionError>,
             ) -> Result<(), ErrorKind> {
-                let val = this.expect_number_in_range(min, max)? as u8;
-                f(&mut this.general_rules, val)?;
-                Ok(())
+                f(&mut this.general_rules, this.token_generator.expect_number_in_range(min, max)? as u8).map_err(From::from)
             }
 
-            fn config2<T: TokenGeneratorTrait, U>(token_gen: &mut T, dst: &mut Option<U>, conf: U, found: Box<str>) -> Result<(), ErrorKind> {
+            fn config2<U>(dst: &mut Option<U>, conf: U, found: Box<str>) -> Result<(), ErrorKind> {
                 if dst.is_some() {
                     Err(ErrorKind::AlreadyExsistentProperty { found })
                 } else {
@@ -231,39 +242,39 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                 }
                 "org" => {
                     let w = self.expect_word_with("IDENTIFIER".to_owned())?;
-                    config2(&mut self.token_generator, &mut self.syntax_rule.org, w, s)
+                    config2(&mut self.syntax_rule.org, w, s)
                 }
                 "end" => {
                     let w = self.expect_word_with("IDENTIFIER".to_owned())?;
-                    config2(&mut self.token_generator, &mut self.syntax_rule.end, w, s)
+                    config2(&mut self.syntax_rule.end, w, s)
                 }
                 "equ" => {
                     let w = self.expect_word_with("IDENTIFIER".to_owned())?;
-                    config2(&mut self.token_generator, &mut self.syntax_rule.equ, w, s)
+                    config2(&mut self.syntax_rule.equ, w, s)
                 }
                 "db" => {
                     let w = self.expect_word_with("IDENTIFIER".to_owned())?;
-                    config2(&mut self.token_generator, &mut self.syntax_rule.db, w, s)
+                    config2(&mut self.syntax_rule.db, w, s)
                 }
                 "ds" => {
                     let w = self.expect_word_with("IDENTIFIER".to_owned())?;
-                    config2(&mut self.token_generator, &mut self.syntax_rule.ds, w, s)
+                    config2(&mut self.syntax_rule.ds, w, s)
                 }
                 "dc" => {
                     let w = self.expect_word_with("IDENTIFIER".to_owned())?;
-                    config2(&mut self.token_generator, &mut self.syntax_rule.dc, w, s)
+                    config2(&mut self.syntax_rule.dc, w, s)
                 }
                 "code_dot" => {
                     let w = self.expect_operator_single()?;
-                    config2(&mut self.token_generator, &mut self.syntax_rule.code_dot, w, s)
+                    config2(&mut self.syntax_rule.code_dot, w, s)
                 }
                 "operand_dot" => {
                     let w = self.expect_operator_single()?;
-                    config2(&mut self.token_generator, &mut self.syntax_rule.operand_dot, w, s)
+                    config2(&mut self.syntax_rule.operand_dot, w, s)
                 }
                 "dc_dot" => {
                     let w = self.expect_operator_single()?;
-                    config2(&mut self.token_generator, &mut self.syntax_rule.dc_dot, w, s)
+                    config2(&mut self.syntax_rule.dc_dot, w, s)
                 }
                 "table" => {
                     // table definition
@@ -287,6 +298,20 @@ impl<T: TokenGeneratorTrait> Parser<T> {
             Ok(Some((name, self.expect_number()?)))
         } else {
             Ok(None)
+        }
+    }
+
+    fn rule_definitions(&mut self) -> Result<(), ErrorKind> {
+        let mut tokens = &mut self.token_generator;
+        tokens.skip_whitespaces();
+        if tokens.consume_operator('*')? {
+            tokens.expect_word_of("use_tables")?;
+            while let Some(name) = tokens.consume_word() {
+                let Some(i) = self.tables.get_index(&name) else {
+                    return Err(ErrorKind::TableNotFound { found: name });
+                };
+                
+            }
         }
     }
 }

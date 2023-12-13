@@ -232,8 +232,26 @@ impl TableKey {
         }
         self.index = NonZeroU64::new(self.index.get() | 1 << (index + 1)).unwrap();
     }
+
+    pub fn from_index(index: u8) -> Self {
+        if index >= 63 {
+            panic!("index must be less than 63");
+        }
+        Self {
+            index: unsafe { NonZeroU64::new_unchecked((1 << (index + 1)) | 1) }
+        }
+    }
 }
 
+pub mod table_key {
+    pub fn add_index(table_key: &mut Option<super::TableKey>, index: u8) {
+        if let Some(table_key) = table_key {
+            table_key.add_index(index);
+        } else {
+            *table_key = Some(super::TableKey::from_index(index));
+        }
+    }
+}
 struct TableKeyIndice {
     index: NonZeroU64,
     bit: u8,
