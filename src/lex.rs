@@ -11,9 +11,7 @@ use thiserror::Error;
 pub enum ErrorKind {
     /// オーバーフローを含む
     #[error("Token \"{token}\" cannot parse to integer.")]
-    ParseIntError {
-        token: String
-    },
+    ParseIntError { token: String },
     #[error("encoding error.")]
     EncodeError,
 }
@@ -28,9 +26,7 @@ pub struct Error {
 impl Error {
     fn new_parse_int_error(_: usize, _: usize, token: String) -> Self {
         Self {
-            inner: ErrorKind::ParseIntError {
-                token,
-            },
+            inner: ErrorKind::ParseIntError { token },
         }
     }
     fn new_encode_error(_: usize, _: usize) -> Self {
@@ -51,9 +47,6 @@ mod test {
                 token: "100a".to_owned(),
             },
         };
-        assert_eq!(
-            e.to_string(),
-            "Token \"100a\" cannot parse to integer."
-        );
+        assert_eq!(e.to_string(), "Token \"100a\" cannot parse to integer.");
     }
 }

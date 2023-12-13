@@ -3,7 +3,7 @@ use std::io;
 use super::{char_gen::CharGenerator, word_gen::WordGeneratorTrait};
 
 /// 演算子のリスト
-/// 
+///
 /// 代わりにSeparatorを使うので、後で削除
 const OPERATORS: [char; 9] = ['#', '*', ';', '(', ')', '[', ']', ':', ','];
 
