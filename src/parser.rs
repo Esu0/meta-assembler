@@ -3,11 +3,11 @@
 pub mod assembly;
 pub mod cgr;
 
-use std::{fmt::Display, io, error};
+use std::{error, fmt::Display, io};
 
 use thiserror::Error;
 
-use crate::lex::{token_gen::Token, char_gen::EncodeError};
+use crate::lex::{char_gen::EncodeError, token_gen::Token};
 
 #[derive(Error, Debug)]
 pub enum ErrorKind {
@@ -24,7 +24,7 @@ pub enum ErrorKind {
     #[error("ファイルの終端に到達しました。")]
     UnexpectedEof,
     #[error("テーブル{found}が定義されていません。")]
-    TableNotFound{ found: Box<str> },
+    TableNotFound { found: Box<str> },
     #[error(transparent)]
     EncodeError(#[from] EncodeError),
     #[error(transparent)]

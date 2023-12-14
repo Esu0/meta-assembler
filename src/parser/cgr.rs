@@ -2,10 +2,19 @@
 
 use std::borrow::Borrow;
 
-use crate::{lex::{token_gen::{Token, TokenGeneratorTrait}, char_gen::EncodeError, word_gen::Word}, parser::assembly::Table};
+use crate::{
+    lex::{
+        char_gen::EncodeError,
+        token_gen::{Token, TokenGeneratorTrait},
+        word_gen::Word,
+    },
+    parser::assembly::Table,
+};
 
 use super::{
-    assembly::{GeneralRuleConfig, SyntaxRuleConfig, RulesConfig, TablesConfig, TableKey, table_key},
+    assembly::{
+        table_key, GeneralRuleConfig, RulesConfig, SyntaxRuleConfig, TableKey, TablesConfig,
+    },
     Error, ErrorKind,
 };
 
@@ -24,7 +33,10 @@ trait TokenGeneratorTraitExt: TokenGeneratorTrait {
         match self.expect_number_as_string()? {
             Ok(s) => Ok(s),
             Err(Some(Token::Word(s))) => Ok(s.into()),
-            Err(Some(t)) => Err(ErrorKind::unexpected_token("IDENTIFIER or NUMBER".into(), t)),
+            Err(Some(t)) => Err(ErrorKind::unexpected_token(
+                "IDENTIFIER or NUMBER".into(),
+                t,
+            )),
             Err(None) => Err(ErrorKind::UnexpectedEof),
         }
     }
@@ -44,14 +56,20 @@ trait TokenGeneratorTraitExt: TokenGeneratorTrait {
     }
 
     fn unexpected_token(&self, expected: Box<str>, found: Token) -> Error {
-        self.gen_error(ErrorKind::UnexpectedToken { expected, found: String::from(found).into() })
+        self.gen_error(ErrorKind::UnexpectedToken {
+            expected,
+            found: String::from(found).into(),
+        })
     }
 
     fn unexpected_eof(&self) -> Error {
         Error::unexpected_eof(self.reader_position())
     }
 
-    fn add_reader_position<T, EK: Into<ErrorKind>>(&self, result: Result<T, EK>) -> Result<T, Error> {
+    fn add_reader_position<T, EK: Into<ErrorKind>>(
+        &self,
+        result: Result<T, EK>,
+    ) -> Result<T, Error> {
         result.map_err(|e| self.gen_error(e.into()))
     }
 
@@ -62,7 +80,7 @@ trait TokenGeneratorTraitExt: TokenGeneratorTrait {
             Some(Ok(c)) if c == op => {
                 self.next_char();
                 Ok(true)
-            },
+            }
             Some(Err(_)) => Err(EncodeError),
             _ => Ok(false),
         }
@@ -76,7 +94,7 @@ trait TokenGeneratorTraitExt: TokenGeneratorTrait {
                     Some(Ok(Word::Word(s))) => Some(s.into()),
                     _ => panic!("next_word() returned non-word token when peeked word."),
                 }
-            },
+            }
             _ => None,
         }
     }
@@ -107,7 +125,7 @@ trait TokenGeneratorTraitExt: TokenGeneratorTrait {
     fn expect_word_of<S: Borrow<str> + ?Sized>(&mut self, w: &S) -> Result<(), ErrorKind> {
         match self.expect_token()? {
             Token::Word(s) if s.as_str() == w.borrow() => Ok(()),
-            t => Err(ErrorKind::unexpected_token(w.borrow().to_owned(), t))
+            t => Err(ErrorKind::unexpected_token(w.borrow().to_owned(), t)),
         }
     }
 }
@@ -195,10 +213,14 @@ impl<T: TokenGeneratorTrait> Parser<T> {
     fn expect_operator_single(&mut self) -> Result<char, ErrorKind> {
         match self.expect_token()? {
             Token::Opr(s) if s.len() == 1 => Ok(s.chars().next().unwrap()),
-            Token::Opr(s) => Err(ErrorKind::unexpected_token("single character OPERATOR".to_owned(), Token::Opr(s))),
-            t => {
-                Err(ErrorKind::unexpected_token("OPERATOR such as \',\', \'.\', \';\', etc...".to_owned(), t))
-            }
+            Token::Opr(s) => Err(ErrorKind::unexpected_token(
+                "single character OPERATOR".to_owned(),
+                Token::Opr(s),
+            )),
+            t => Err(ErrorKind::unexpected_token(
+                "OPERATOR such as \',\', \'.\', \';\', etc...".to_owned(),
+                t,
+            )),
         }
     }
 
@@ -215,10 +237,15 @@ impl<T: TokenGeneratorTrait> Parser<T> {
     fn ignore_number(&mut self) -> Result<(), ErrorKind> {
         match self.token_generator.peek() {
             Some(Ok(c)) if c.is_ascii_digit() => {
-                let t = self.token_generator.next_token().unwrap_or_else(|| panic!("TokenGenerator returned EOF but remains some charactors."))?;
-                debug_assert!(matches!(t, Token::Integer(_)), "TokenGenerator returned non-number token when peeked number.");
+                let t = self.token_generator.next_token().unwrap_or_else(|| {
+                    panic!("TokenGenerator returned EOF but remains some charactors.")
+                })?;
+                debug_assert!(
+                    matches!(t, Token::Integer(_)),
+                    "TokenGenerator returned non-number token when peeked number."
+                );
                 Ok(())
-            },
+            }
             _ => Ok(()),
         }
     }
@@ -229,9 +256,14 @@ impl<T: TokenGeneratorTrait> Parser<T> {
             if self.token_generator.consume_operator('#')? {
                 let i = self.token_generator.expect_identifier()?;
                 match i.as_ref() {
-                    "general_definition" | "table_definition" | "end" => {},
+                    "general_definition" | "table_definition" | "end" => {}
                     "rule_definition" => break,
-                    _ => return Err(ErrorKind::UnexpectedToken { expected: "general_definition, table_definition, etc...".into(), found: i })
+                    _ => {
+                        return Err(ErrorKind::UnexpectedToken {
+                            expected: "general_definition, table_definition, etc...".into(),
+                            found: i,
+                        })
+                    }
                 }
             } else {
                 self.configulation()?;
@@ -258,7 +290,11 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                     u8,
                 ) -> Result<(), super::assembly::DoubleDefinitionError>,
             ) -> Result<(), ErrorKind> {
-                f(&mut this.general_rules, this.token_generator.expect_number_in_range(min, max)? as u8).map_err(From::from)
+                f(
+                    &mut this.general_rules,
+                    this.token_generator.expect_number_in_range(min, max)? as u8,
+                )
+                .map_err(From::from)
             }
 
             fn config2<U>(dst: &mut Option<U>, conf: U, found: Box<str>) -> Result<(), ErrorKind> {
@@ -362,7 +398,10 @@ impl<T: TokenGeneratorTrait> Parser<T> {
             let i = tokens.expect_identifier()?;
             return match i.as_ref() {
                 "end" => Ok(()),
-                _ => Err(ErrorKind::UnexpectedToken { expected: "end".into(), found: i }),
+                _ => Err(ErrorKind::UnexpectedToken {
+                    expected: "end".into(),
+                    found: i,
+                }),
             };
         } else if let Some(i) = tokens.consume_identifier() {
             // add rule

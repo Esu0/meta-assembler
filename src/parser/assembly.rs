@@ -1,7 +1,7 @@
 //! アセンブリの構文解析
 
 use itertools::Itertools;
-use std::{collections::HashMap, num::NonZeroU64, default};
+use std::{collections::HashMap, default, num::NonZeroU64};
 /// アセンブリのコード生成ルール全体を表す。
 /// ニーモニック一つにルール一つが対応するようになっている。
 /// # 注意
@@ -238,7 +238,7 @@ impl TableKey {
             panic!("index must be less than 63");
         }
         Self {
-            index: unsafe { NonZeroU64::new_unchecked((1 << (index + 1)) | 1) }
+            index: unsafe { NonZeroU64::new_unchecked((1 << (index + 1)) | 1) },
         }
     }
 }
@@ -291,14 +291,14 @@ impl Table {
     }
 
     pub fn new() -> Self {
-        Self {tbl: HashMap::new()}
+        Self {
+            tbl: HashMap::new(),
+        }
     }
 
     pub fn add(&mut self, name: Box<str>, val: u64) -> Result<(), DoubleDefinitionError> {
         if self.tbl.contains_key(name.as_ref()) {
-            Err(DoubleDefinitionError {
-                rule_name: name
-            })
+            Err(DoubleDefinitionError { rule_name: name })
         } else {
             self.tbl.insert(name, val);
             Ok(())
@@ -315,9 +315,7 @@ pub struct TablesConfig {
 impl TablesConfig {
     pub fn add_table(&mut self, name: Box<str>, tbl: Table) -> Result<(), tables::Error> {
         if self.names.contains_key(name.as_ref()) {
-            Err(DoubleDefinitionError {
-                rule_name: name
-            }.into())
+            Err(DoubleDefinitionError { rule_name: name }.into())
         } else {
             self.names.insert(name, self.tbls.len());
             self.tbls.push(tbl);
@@ -329,7 +327,7 @@ impl TablesConfig {
         }
     }
 
-    pub fn get_index<Q>(&self, name: &Q) -> Option<u8> 
+    pub fn get_index<Q>(&self, name: &Q) -> Option<u8>
     where
         Box<str>: std::borrow::Borrow<Q>,
         Q: std::hash::Hash + Eq + ?Sized,
@@ -356,9 +354,9 @@ pub mod tables {
     impl From<Error> for ErrorKind {
         fn from(value: Error) -> Self {
             match value {
-                Error::DoubleDefinitionError(e) => Self::AlreadyExsistentProperty {
-                    found: e.rule_name,
-                },
+                Error::DoubleDefinitionError(e) => {
+                    Self::AlreadyExsistentProperty { found: e.rule_name }
+                }
                 Error::TooManyTables => Self::TooManyTables,
             }
         }
