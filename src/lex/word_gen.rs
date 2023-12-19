@@ -127,12 +127,17 @@ impl<C: CharGeneratorTrait> CharGeneratorTrait for WordGenerator<C> {
     }
 }
 
+/// 単語生成器の機能を分離したトレイト
+/// 
+/// 基本的に空白文字は無視されるが、必要以上に空白文字をスキップしない。
 pub trait WordGeneratorTrait: CharGeneratorTrait {
     /// 区切り文字であるかどうかを判定する。
     fn is_separator(&self, c: char) -> bool;
 
     /// 改行以外の空白文字を無視し、`Word`単位に分割して読み進める。
     /// `Word`は、改行、区切り文字、単語の3種類がある。
+    /// 
+    /// `Word`を読んだ後に現れる空白文字はスキップされない。
     fn next_word(&mut self) -> Option<Result<Word, EncodeError>> {
         self.skip_spaces();
         self.next_char().map(|x| match x {
@@ -150,17 +155,15 @@ pub trait WordGeneratorTrait: CharGeneratorTrait {
         })
     }
 
-    fn gen_encode_error(&self) -> super::Error {
-        let (line, column) = self.reader_position();
-        super::Error::new_encode_error(line, column)
-    }
-
-    /// `Word`のイテレータを返す。
+    /// `Result<Word, EncodeError>`のイテレータを返す。
+    /// 
+    /// このイテレータが`None`を返すことはEOFを意味する。
     fn words(&mut self) -> Words<Self> {
         Words { word_gen: self }
     }
 
-    /// 次に来る`Word`が単語なら、その単語を返す。
+    /// `WordGeneratorTrait::next_word`が返す``Word`が`Word::Word(_)`なら、その文字列を返す。
+    /// `Word::Word(_)`でない場合は`Err(_)`として`WordGeneratorTrait::next_word`の結果を返す。
     fn expect_word(&mut self) -> Result<Box<str>, Option<Result<Word, EncodeError>>> {
         match self.next_word() {
             Some(Ok(Word::Word(w))) => Ok(w),

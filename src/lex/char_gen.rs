@@ -80,6 +80,16 @@ impl<C: Iterator<Item = io::Result<char>>> CharGeneratorTrait for CharGenerator<
     }
 }
 
+/// 文字生成器の機能を分離したトレイト
+/// 
+/// * 空白文字が発見された場合も無視せず、その文字を返す
+/// 
+/// * エンコード不可文字が発見されると`Err(EncodeError)`を返して読み進める
+/// 
+/// * Peekableな`Result<char, EncodeError>`のイテレータの機能を持つが、
+/// `Iterator`トレイトは実装していない
+/// 
+/// * `Iterator`トレイトの機能が欲しい場合は`CharGeneratorTrait::chars`関数を使う
 pub trait CharGeneratorTrait {
     /// 現在の行と列を返す
     fn reader_position(&self) -> (usize, usize);
@@ -88,12 +98,13 @@ pub trait CharGeneratorTrait {
     /// 次の文字を、読み進めずに返す。
     fn peek(&mut self) -> Option<Result<char, EncodeError>>;
 
-    /// 文字のイテレータを返す。
+    /// `Result<char, EncodeError>`のイテレータを返す。
     fn chars(&mut self) -> Chars<Self> {
         Chars { inner: self }
     }
 
     /// `predicate`が`false`を返すまでの文字を取り出す。
+    /// エンコード不可文字が見つかったらイテレータは`None`を返す。
     fn take_while<P>(&mut self, predicate: P) -> TakeWhile<Self, P>
     where
         P: FnMut(char) -> bool,
@@ -104,7 +115,8 @@ pub trait CharGeneratorTrait {
         }
     }
 
-    /// `predicate`に`self`を使いたい場合に使う。`self`を使わない場合は`take_while`関数を使う。
+    /// `predicate`に`self`を使いたい場合に`take_while`の代わりに使う。
+    /// `self`を使わない場合は`take_while`関数を使う。
     fn take_while_with_self<P>(&mut self, predicate: P) -> TakeWhileWithSelf<Self, P>
     where
         P: FnMut(&mut Self, char) -> bool,
@@ -126,16 +138,19 @@ pub trait CharGeneratorTrait {
     }
 
     /// 改行以外の空白文字をスキップする。
+    /// ここでいう空白文字とは`char::is_ascii_whitespace`で`true`を返す文字
     fn skip_spaces(&mut self) {
         self.skip_while(|c| c.map_or(false, |c| c.is_ascii_whitespace() && c != '\n'))
     }
 
     /// 空白文字をスキップする。
+    /// ここでいう空白文字とは`char::is_ascii_whitespace`で`true`を返す文字
     fn skip_whitespaces(&mut self) {
         self.skip_while(|c| c.map_or(false, |c| c.is_ascii_whitespace()))
     }
 
-    /// 指定した文字を読み飛ばす。
+    /// 次の文字が`c`と一致したら文字を読み進め、`true`を返す。
+    /// 一致しない場合は文字を読み進めず、`false`を返す。
     fn consume(&mut self, c: char) -> bool {
         if self.peek() == Some(Ok(c)) {
             self.next_char();
@@ -145,7 +160,8 @@ pub trait CharGeneratorTrait {
         }
     }
 
-    /// `f`を満たす文字を読み飛ばす。
+    /// 次の文字を`f`に渡し、`true`が返されたら文字を読み進め、`true`を返す。
+    /// `false`が返されたら文字を読み進めず、`false`を返す。
     fn consume_with<F: FnOnce(char) -> bool>(&mut self, f: F) -> bool {
         if let Some(Ok(c)) = self.peek() {
             if f(c) {
@@ -157,6 +173,7 @@ pub trait CharGeneratorTrait {
     }
 }
 
+/// エンコードできない文字およびそのエラー型を表す構造体
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("エンコードできない文字が含まれています。")]
 pub struct EncodeError;
