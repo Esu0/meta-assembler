@@ -128,7 +128,7 @@ impl<C: CharGeneratorTrait> CharGeneratorTrait for WordGenerator<C> {
 }
 
 /// 単語生成器の機能を分離したトレイト
-/// 
+///
 /// 基本的に空白文字は無視されるが、必要以上に空白文字をスキップしない。
 pub trait WordGeneratorTrait: CharGeneratorTrait {
     /// 区切り文字であるかどうかを判定する。
@@ -136,7 +136,7 @@ pub trait WordGeneratorTrait: CharGeneratorTrait {
 
     /// 改行以外の空白文字を無視し、`Word`単位に分割して読み進める。
     /// `Word`は、改行、区切り文字、単語の3種類がある。
-    /// 
+    ///
     /// `Word`を読んだ後に現れる空白文字はスキップされない。
     fn next_word(&mut self) -> Option<Result<Word, EncodeError>> {
         self.skip_spaces();
@@ -156,7 +156,7 @@ pub trait WordGeneratorTrait: CharGeneratorTrait {
     }
 
     /// `Result<Word, EncodeError>`のイテレータを返す。
-    /// 
+    ///
     /// このイテレータが`None`を返すことはEOFを意味する。
     fn words(&mut self) -> Words<Self> {
         Words { word_gen: self }
