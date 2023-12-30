@@ -81,14 +81,14 @@ impl<C: Iterator<Item = io::Result<char>>> CharGeneratorTrait for CharGenerator<
 }
 
 /// 文字生成器の機能を分離したトレイト
-/// 
+///
 /// * 空白文字が発見された場合も無視せず、その文字を返す
-/// 
+///
 /// * エンコード不可文字が発見されると`Err(EncodeError)`を返して読み進める
-/// 
+///
 /// * Peekableな`Result<char, EncodeError>`のイテレータの機能を持つが、
 /// `Iterator`トレイトは実装していない
-/// 
+///
 /// * `Iterator`トレイトの機能が欲しい場合は`CharGeneratorTrait::chars`関数を使う
 pub trait CharGeneratorTrait {
     /// 現在の行と列を返す
