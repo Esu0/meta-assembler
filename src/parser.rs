@@ -28,8 +28,6 @@ pub enum ErrorKind {
     #[error("トークン{found}をオペコードに変換できません。")]
     OpeCodeParseError { found: Box<str> },
     #[error(transparent)]
-    EncodeError(#[from] EncodeError),
-    #[error(transparent)]
     LexicalError(#[from] crate::lex::Error),
 }
 
@@ -37,12 +35,18 @@ impl ErrorKind {
     pub fn unexpected_token(expected: String, found: Token) -> Self {
         Self::UnexpectedToken {
             expected: expected.into_boxed_str(),
-            found: String::from(found).into_boxed_str(),
+            found: found.to_string().into_boxed_str(),
         }
     }
 
     pub fn num_out_of_range(min: i64, max: i64, found: i64) -> Self {
         Self::NumOutOfRange { min, max, found }
+    }
+}
+
+impl From<EncodeError> for ErrorKind {
+    fn from(_: EncodeError) -> Self {
+        crate::lex::Error::encode_error().into()
     }
 }
 

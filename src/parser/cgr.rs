@@ -5,7 +5,7 @@ use std::{borrow::Borrow, collections::HashMap};
 use crate::{
     lex::{
         char_gen::{CharGeneratorTrait, EncodeError},
-        token_gen::{Token, TokenGeneratorTrait},
+        token_gen::{Token, TokenGeneratorTrait, TokenKind},
         word_gen::Word,
     },
     parser::assembly::{Table, TableBits},
@@ -38,14 +38,16 @@ impl<T: CharGeneratorTrait> CharGeneratorTraitExt for T {}
 
 trait TokenGeneratorTraitExt: TokenGeneratorTrait {
     fn expect_number_or_identifier(&mut self) -> Result<Box<str>, ErrorKind> {
-        match self.expect_number_as_string()? {
-            Ok(s) => Ok(s),
-            Err(Some(Token::Ident(s))) => Ok(s),
-            Err(Some(t)) => Err(ErrorKind::unexpected_token(
+        self.skip_whitespaces();
+        match self.next_word().ok_or(ErrorKind::UnexpectedEof)?? {
+            Word::IdentDigit(s) => Ok(s),
+            Word::Separator(c) => Err(ErrorKind::unexpected_token(
                 "IDENTIFIER or NUMBER".into(),
-                t,
+                Token::single_operator(c),
             )),
-            Err(None) => Err(ErrorKind::UnexpectedEof),
+            _ => panic!(
+                "next_word() returned \"whitespace\" kind of word just after skip whitespaces."
+            ),
         }
     }
 
@@ -81,32 +83,6 @@ trait TokenGeneratorTraitExt: TokenGeneratorTrait {
         result.map_err(|e| self.gen_error(e.into()))
     }
 
-    fn consume_operator(&mut self, op: char) -> Result<bool, EncodeError> {
-        debug_assert!(self.is_separator(op));
-        self.skip_spaces();
-        match self.peek() {
-            Some(Ok(c)) if c == op => {
-                self.next_char();
-                Ok(true)
-            }
-            Some(Err(_)) => Err(EncodeError),
-            _ => Ok(false),
-        }
-    }
-
-    fn consume_identifier(&mut self) -> Option<Box<str>> {
-        self.skip_spaces();
-        match self.peek() {
-            Some(Ok(c)) if !(self.is_separator(c) || c.is_ascii_digit()) => {
-                match self.next_word() {
-                    Some(Ok(Word::Word(s))) => Some(s.into()),
-                    _ => panic!("next_word() returned non-word token when peeked word."),
-                }
-            }
-            _ => None,
-        }
-    }
-
     fn expect_token(&mut self) -> Result<Token, ErrorKind> {
         match self.next_token() {
             Some(t) => Ok(t?),
@@ -130,10 +106,31 @@ trait TokenGeneratorTraitExt: TokenGeneratorTrait {
         }
     }
 
-    fn expect_word_of<S: Borrow<str> + ?Sized>(&mut self, w: &S) -> Result<(), ErrorKind> {
+    fn expect_ident_of<S: Borrow<str> + ?Sized>(&mut self, w: &S) -> Result<(), ErrorKind> {
         match self.expect_token()? {
             Token::Ident(s) if &*s == w.borrow() => Ok(()),
             t => Err(ErrorKind::unexpected_token(w.borrow().to_owned(), t)),
+        }
+    }
+
+    fn expect_word_with(&mut self, msg_expected: String) -> Result<Box<str>, ErrorKind> {
+        match self.expect_token()? {
+            Token::Ident(s) => Ok(s),
+            t => Err(ErrorKind::unexpected_token(msg_expected, t)),
+        }
+    }
+
+    fn expect_operator_single(&mut self) -> Result<char, ErrorKind> {
+        match self.expect_token()? {
+            Token::Opr(s) if s[1].is_none() => Ok(s[0].unwrap()),
+            Token::Opr(s) => Err(ErrorKind::unexpected_token(
+                "single character OPERATOR".to_owned(),
+                Token::Opr(s),
+            )),
+            t => Err(ErrorKind::unexpected_token(
+                "OPERATOR such as \',\', \'.\', \';\', etc...".to_owned(),
+                t,
+            )),
         }
     }
 }
@@ -172,50 +169,6 @@ impl<T: TokenGeneratorTrait> Parser<T> {
     //     }
     // }
 
-    fn expect_word_with(&mut self, expected: String) -> Result<Box<str>, ErrorKind> {
-        match self.expect_token()? {
-            Token::Ident(s) => Ok(s),
-            t => Err(ErrorKind::unexpected_token(expected, t)),
-        }
-    }
-
-    fn expect_token(&mut self) -> Result<Token, ErrorKind> {
-        match self.token_generator.next_token() {
-            Some(t) => Ok(t?),
-            None => Err(ErrorKind::UnexpectedEof),
-        }
-    }
-
-    fn expect_number(&mut self) -> Result<i64, ErrorKind> {
-        match self.expect_token()? {
-            Token::Integer(n) => Ok(n),
-            t => Err(ErrorKind::unexpected_token("number".to_owned(), t)),
-        }
-    }
-
-    fn expect_number_in_range(&mut self, min: i64, max: i64) -> Result<i64, ErrorKind> {
-        let n = self.expect_number()?;
-        if n < min || n > max {
-            Err(ErrorKind::num_out_of_range(min, max, n))
-        } else {
-            Ok(n)
-        }
-    }
-
-    fn expect_operator_single(&mut self) -> Result<char, ErrorKind> {
-        match self.expect_token()? {
-            Token::Opr(s) if s[1].is_none() => Ok(s[0].unwrap()),
-            Token::Opr(s) => Err(ErrorKind::unexpected_token(
-                "single character OPERATOR".to_owned(),
-                Token::Opr(s),
-            )),
-            t => Err(ErrorKind::unexpected_token(
-                "OPERATOR such as \',\', \'.\', \';\', etc...".to_owned(),
-                t,
-            )),
-        }
-    }
-
     // ignore系
 
     // fn ignore(&mut self, f: impl FnOnce(&Option<Token>) -> bool) -> Result<(), Error> {
@@ -226,26 +179,10 @@ impl<T: TokenGeneratorTrait> Parser<T> {
     //     Ok(())
     // }
 
-    fn ignore_number(&mut self) -> Result<(), ErrorKind> {
-        match self.token_generator.peek() {
-            Some(Ok(c)) if c.is_ascii_digit() => {
-                let t = self.token_generator.next_token().unwrap_or_else(|| {
-                    panic!("TokenGenerator returned EOF but remains some charactors.")
-                })?;
-                debug_assert!(
-                    matches!(t, Token::Integer(_)),
-                    "TokenGenerator returned non-number token when peeked number."
-                );
-                Ok(())
-            }
-            _ => Ok(()),
-        }
-    }
-
     pub fn pgrm(&mut self) -> Result<(), ErrorKind> {
         loop {
             self.token_generator.skip_whitespaces();
-            if self.token_generator.consume_operator('#')? {
+            if self.token_generator.consume_operator('#') {
                 let i = self.token_generator.expect_identifier()?;
                 match i.as_ref() {
                     "general_definition" | "table_definition" | "end" => {}
@@ -269,8 +206,10 @@ impl<T: TokenGeneratorTrait> Parser<T> {
 
     pub fn configulation(&mut self) -> Result<(), ErrorKind> {
         self.token_generator.skip_whitespaces();
-        if self.token_generator.consume_operator('*')? {
-            let s = self.expect_word_with("word_size, address_size, etc...".to_owned())?;
+        if self.token_generator.consume_operator('*') {
+            let s = self
+                .token_generator
+                .expect_word_with("word_size, address_size, etc...".to_owned())?;
             let s_str = s.as_ref();
 
             fn config<T: TokenGeneratorTrait>(
@@ -307,42 +246,55 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                 "address_mode" => config(self, 0, 3, GeneralRuleConfig::set_address_mode),
                 "how_operations" | "how_labels" | "how_equs" | "how_tables" | "how_entrys" => {
                     // output warning(予定)
-                    self.ignore_number()
+                    self.token_generator.ignore_token(TokenKind::Integer)?;
+                    Ok(())
                 }
                 "org" => {
-                    let w = self.expect_word_with("IDENTIFIER".to_owned())?;
+                    let w = self
+                        .token_generator
+                        .expect_word_with("IDENTIFIER".to_owned())?;
                     config2(&mut self.syntax_rule.org, w, s)
                 }
                 "end" => {
-                    let w = self.expect_word_with("IDENTIFIER".to_owned())?;
+                    let w = self
+                        .token_generator
+                        .expect_word_with("IDENTIFIER".to_owned())?;
                     config2(&mut self.syntax_rule.end, w, s)
                 }
                 "equ" => {
-                    let w = self.expect_word_with("IDENTIFIER".to_owned())?;
+                    let w = self
+                        .token_generator
+                        .expect_word_with("IDENTIFIER".to_owned())?;
                     config2(&mut self.syntax_rule.equ, w, s)
                 }
                 "db" => {
-                    let w = self.expect_word_with("IDENTIFIER".to_owned())?;
+                    let w = self
+                        .token_generator
+                        .expect_word_with("IDENTIFIER".to_owned())?;
                     config2(&mut self.syntax_rule.db, w, s)
                 }
                 "ds" => {
-                    let w = self.expect_word_with("IDENTIFIER".to_owned())?;
+                    let w = self
+                        .token_generator
+                        .expect_word_with("IDENTIFIER".to_owned())?;
                     config2(&mut self.syntax_rule.ds, w, s)
                 }
                 "dc" => {
-                    let w = self.expect_word_with("IDENTIFIER".to_owned())?;
+                    let w = self
+                        .token_generator
+                        .expect_word_with("IDENTIFIER".to_owned())?;
                     config2(&mut self.syntax_rule.dc, w, s)
                 }
                 "code_dot" => {
-                    let w = self.expect_operator_single()?;
+                    let w = self.token_generator.expect_operator_single()?;
                     config2(&mut self.syntax_rule.code_dot, w, s)
                 }
                 "operand_dot" => {
-                    let w = self.expect_operator_single()?;
+                    let w = self.token_generator.expect_operator_single()?;
                     config2(&mut self.syntax_rule.operand_dot, w, s)
                 }
                 "dc_dot" => {
-                    let w = self.expect_operator_single()?;
+                    let w = self.token_generator.expect_operator_single()?;
                     config2(&mut self.syntax_rule.dc_dot, w, s)
                 }
                 "table" => {
@@ -372,9 +324,9 @@ impl<T: TokenGeneratorTrait> Parser<T> {
 
     fn stmt_define_table(&mut self) -> Result<Option<(Box<str>, i64)>, ErrorKind> {
         self.token_generator.skip_whitespaces();
-        if let Some(name) = self.token_generator.consume_word() {
+        if let Some(name) = self.token_generator.consume_identdigit() {
             self.token_generator.skip_whitespaces();
-            Ok(Some((name, self.expect_number()?)))
+            Ok(Some((name, self.token_generator.expect_number()?)))
         } else {
             Ok(None)
         }
@@ -383,18 +335,18 @@ impl<T: TokenGeneratorTrait> Parser<T> {
     fn rule_definitions(&mut self) -> Result<(), ErrorKind> {
         let tokens = &mut self.token_generator;
         tokens.skip_whitespaces();
-        if tokens.consume_operator('*')? {
-            tokens.expect_word_of("use_tables")?;
-            while let Some(name) = tokens.consume_word() {
+        if tokens.consume_operator('*') {
+            tokens.expect_ident_of("use_tables")?;
+            while let Some(name) = tokens.consume_identdigit() {
                 let Some(i) = self.tables.get_index(&name) else {
                     return Err(ErrorKind::TableNotFound { found: name });
                 };
                 table_key::add_index(&mut self.default_tables, i);
-                if !tokens.consume_operator(',')? {
+                if !tokens.consume_operator(',') {
                     break;
                 }
             }
-        } else if tokens.consume_operator('#')? {
+        } else if tokens.consume_operator('#') {
             let i = tokens.expect_identifier()?;
             return match i.as_ref() {
                 "end" => Ok(()),
@@ -411,15 +363,15 @@ impl<T: TokenGeneratorTrait> Parser<T> {
 
     fn consume_use_tables(&mut self) -> Result<bool, ErrorKind> {
         let tokens = &mut self.token_generator;
-        if tokens.consume_operator('*')? {
-            tokens.expect_word_of("use_tables")?;
+        if tokens.consume_operator('*') {
+            tokens.expect_ident_of("use_tables")?;
             self.default_tables = None;
-            while let Some(name) = tokens.consume_word() {
+            while let Some(name) = tokens.consume_identdigit() {
                 let Some(i) = self.tables.get_index(&name) else {
                     return Err(ErrorKind::TableNotFound { found: name });
                 };
                 table_key::add_index(&mut self.default_tables, i);
-                if !tokens.consume_operator(',')? {
+                if !tokens.consume_operator(',') {
                     break;
                 }
             }
@@ -443,7 +395,7 @@ impl<T: TokenGeneratorTrait> Parser<T> {
         let tokens = &mut self.token_generator;
         match tokens.peek() {
             Some(Ok('0')) | Some(Ok('1')) => {
-                let s = tokens.consume_word().unwrap_or_else(|| {
+                let s = tokens.consume_identdigit().unwrap_or_else(|| {
                     panic!("WordGeneratorTrait::expect_word() implementation broken.")
                 });
                 let length = s.len();

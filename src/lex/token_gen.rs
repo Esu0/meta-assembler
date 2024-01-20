@@ -1,4 +1,8 @@
-use super::{word_gen::{WordGeneratorTrait, Word, WordKind, self}, Error};
+use super::{
+    char_gen::EncodeError,
+    word_gen::{self, Word, WordGeneratorTrait, WordKind},
+    Error,
+};
 
 // トークン型のvariantの型は要検討
 // 型の候補↓
@@ -82,20 +86,20 @@ pub trait TokenGeneratorTrait: WordGeneratorTrait {
             Err(_) => {
                 self.next_char();
                 Err(Error::encode_error())
-            },
-            Ok(WordKind::Word) => {
+            }
+            Ok(WordKind::IdentDigit) => {
                 let Some(Ok(c)) = self.peek() else {
                     word_gen::error_next_word_kind()
                 };
                 if c.is_ascii_digit() {
                     self.parse_next_number().map(Token::Integer)
                 } else {
-                    let Some(Ok(Word::Word(w))) = self.next_word() else {
+                    let Some(Ok(Word::IdentDigit(w))) = self.next_word() else {
                         word_gen::error_next_word_kind()
                     };
                     Ok(Token::Ident(w))
                 }
-            },
+            }
             Ok(WordKind::Separator) => {
                 let Some(Ok(Word::Separator(separator))) = self.next_word() else {
                     word_gen::error_next_word_kind()
@@ -103,26 +107,9 @@ pub trait TokenGeneratorTrait: WordGeneratorTrait {
                 Ok(Token::single_operator(separator))
             }
             _ => {
-                word_gen::report_broken_impl(&["next_word_kind", "skip_whitespaces"]);
+                report_broken_impl(&["next_token"]);
             }
         })
-    }
-
-    /// 次のトークンが純粋な数字の列ならば、それを文字列として返す。
-    ///
-    /// それ以外のトークンならば、`Ok(Err(Some(Token)))`、EOFなら`Ok(Err(None))`を返す。
-    fn expect_number_as_string(&mut self) -> Result<Result<Box<str>, Option<Token>>, Error> {
-        todo!("expect_number_as_string")
-    }
-
-    fn read_binary_number(&mut self) -> Result<Result<u64, Option<Token>>, Error> {
-        let s = self.expect_number_as_string()?;
-        match s {
-            Ok(s) => Ok(Ok(s
-                .parse()
-                .map_err(|_| Error::new_parse_int_error(s))?)),
-            Err(t) => Ok(Err(t)),
-        }
     }
 
     fn token_iter(self) -> impl Iterator<Item = Result<Token, Error>>
@@ -130,6 +117,45 @@ pub trait TokenGeneratorTrait: WordGeneratorTrait {
         Self: Sized,
     {
         Iter(self)
+    }
+
+    /// 必ず空白文字は読み進める
+    fn consume_identifier(&mut self) -> Option<Box<str>> {
+        self.skip_whitespaces();
+        match self.predict() {
+            Some(Ok(TokenKind::Ident)) => match self.next_word() {
+                Some(Ok(Word::IdentDigit(s))) => Some(s),
+                _ => panic!("next_word() returned non-word token when peeked word."),
+            },
+            _ => None,
+        }
+    }
+
+    /// 必ず空白文字は読み進める
+    fn consume_operator(&mut self, op: char) -> bool {
+        debug_assert!(self.is_separator(op));
+        self.skip_whitespaces();
+        self.consume(op)
+    }
+
+    fn next_token_kind(&mut self) -> Option<Result<TokenKind, EncodeError>> {
+        self.skip_whitespaces();
+        self.predict()
+    }
+
+    fn ignore_token(&mut self, kind: TokenKind) -> Result<(), Error> {
+        if self.next_token_kind() == Some(Ok(kind))
+            && self
+                .next_token()
+                .unwrap_or_else(|| {
+                    panic!("TokenGenerator returned EOF but some charactors remain.")
+                })?
+                .kind()
+                != kind
+        {
+            panic!("TokenGenerator returned different token kind when peeked.");
+        }
+        Ok(())
     }
 }
 
@@ -143,8 +169,18 @@ trait TokenGeneratorPrivate: TokenGeneratorTrait {
                 8
             } else if self.consume_with(|c| matches!(c, 'b' | 'B')) {
                 2
-            } else {
+            } else if self.consume_with(|c| c.is_ascii_digit()) {
                 10
+            } else if matches!(self.next_word_kind(), Some(Ok(WordKind::IdentDigit))) {
+                let Some(Ok(c)) = self.next_char() else {
+                    report_broken_impl(&["parse_next_number"])
+                };
+                self.ignore_word_of(WordKind::IdentDigit);
+                return Err(Error::new_int_prefix_error(
+                    format!("0{c}").into_boxed_str(),
+                ));
+            } else {
+                return Ok(0);
             }
         } else {
             10
@@ -156,10 +192,22 @@ trait TokenGeneratorPrivate: TokenGeneratorTrait {
     ///
     /// パース不可能な文字列を読み取った場合は`ParseIntError`を返す。
     fn parse_next_number_as(&mut self, radix: u32) -> Result<i64, Error> {
-        let Some(Ok(Word::Word(w))) = self.next_word() else {
-            report_broken_impl(&["WordGenerator::next_word", "WordGenerator::next_word_kind"])
+        let Some(Ok(Word::IdentDigit(w))) = self.next_word() else {
+            report_broken_impl(&["parse_next_number_as"])
         };
-        i64::from_str_radix(&w, radix).map_err(|_| Error::new_parse_int_error(w))
+        i64::from_str_radix(&w, radix).map_err(|_| Error::new_parse_int_error(w, radix))
+    }
+
+    /// トークンの種類を予測する。
+    ///
+    /// 空白文字が次に来る場合は`TokenKind::Ident`と予測するので注意
+    fn predict(&self) -> Option<Result<TokenKind, EncodeError>> {
+        Some(match self.peek()? {
+            Ok(c) if c.is_ascii_digit() => Ok(TokenKind::Integer),
+            Ok(c) if self.is_separator(c) => Ok(TokenKind::Opr),
+            Ok(_) => Ok(TokenKind::Ident),
+            Err(_) => Err(EncodeError),
+        })
     }
 }
 
@@ -195,10 +243,7 @@ fn token_generator_test() {
     assert_eq!(gen.next(), Some(Ok(Token::opr("#"))));
     assert_eq!(gen.next(), Some(Ok(Token::Ident("end".into()))));
     assert_eq!(gen.next(), Some(Ok(Token::opr("#"))));
-    assert_eq!(
-        gen.next(),
-        Some(Ok(Token::Ident("rule_definition".into())))
-    );
+    assert_eq!(gen.next(), Some(Ok(Token::Ident("rule_definition".into()))));
     assert_eq!(gen.next(), Some(Ok(Token::Ident("add".into()))));
     assert_eq!(gen.next(), Some(Ok(Token::Integer(255))));
     assert_eq!(gen.next(), Some(Ok(Token::opr(","))));
@@ -230,11 +275,11 @@ fn token_generator_test() {
     assert_eq!(gen.next(), Some(Ok(Token::Integer(0b1010))));
     assert_eq!(
         gen.next(),
-        Some(Err(Error::new_parse_int_error("0xG".into())))
+        Some(Err(Error::new_parse_int_error("G".into(), 16)))
     );
     assert_eq!(
         gen.next(),
-        Some(Err(Error::new_parse_int_error("0a12".into())))
+        Some(Err(Error::new_int_prefix_error("0a".into())))
     );
     assert_eq!(gen.next(), Some(Ok(Token::Integer(12))));
     assert_eq!(gen.next(), Some(Ok(Token::Integer(0))));
