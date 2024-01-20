@@ -14,7 +14,7 @@ pub enum ErrorKind {
     #[error("予期せぬトークン{found}が検出されました。トークン{expected}が予測されます。")]
     UnexpectedToken { expected: Box<str>, found: Box<str> },
     #[error("数値が範囲外です。範囲は{min}から{max}ですが、{found}が検出されました。")]
-    NumOutOfRange { min: u64, max: u64, found: u64 },
+    NumOutOfRange { min: i64, max: i64, found: i64 },
     #[error("設定{found}は存在しません。")]
     NonExsistentProperty { found: Box<str> },
     #[error("設定{found}は既に存在します。")]
@@ -25,6 +25,8 @@ pub enum ErrorKind {
     UnexpectedEof,
     #[error("テーブル{found}が定義されていません。")]
     TableNotFound { found: Box<str> },
+    #[error("トークン{found}をオペコードに変換できません。")]
+    OpeCodeParseError { found: Box<str> },
     #[error(transparent)]
     EncodeError(#[from] EncodeError),
     #[error(transparent)]
@@ -39,7 +41,7 @@ impl ErrorKind {
         }
     }
 
-    pub fn num_out_of_range(min: u64, max: u64, found: u64) -> Self {
+    pub fn num_out_of_range(min: i64, max: i64, found: i64) -> Self {
         Self::NumOutOfRange { min, max, found }
     }
 }
@@ -67,17 +69,6 @@ pub struct Error {
     inner: ErrorInner,
 }
 
-// TokenにDisplayを実装したら消す
-fn token_to_string(token: Token) -> String {
-    match token {
-        Token::Integer(n) => n.to_string(),
-        Token::Opr(s) => s,
-        Token::Word(s) => s,
-        #[allow(unreachable_patterns)]
-        _ => unimplemented!(),
-    }
-}
-
 impl Error {
     pub fn kind(&self) -> Option<&ErrorKind> {
         match self.inner {
@@ -96,7 +87,7 @@ impl Error {
         Self::new(
             ErrorKind::UnexpectedToken {
                 expected: expected.into(),
-                found: token_to_string(found).into(),
+                found: found.to_string().into_boxed_str(),
             },
             position.0,
             position.1,

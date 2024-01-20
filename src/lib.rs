@@ -93,10 +93,16 @@ mod bit_slice {
     }
 
     pub fn slice_bit<T: PrinterSlice + Default>(slc: &[u8]) -> SliceBit<T> {
-        SliceBit {slc, printer: T::default()}
+        SliceBit {
+            slc,
+            printer: T::default(),
+        }
     }
 
     pub fn separate_into_word(slc: &[u8], word_size: u8) -> SliceBit<SeparateWord> {
-        SliceBit {slc, printer: SeparateWord(word_size)}
+        SliceBit {
+            slc,
+            printer: SeparateWord(word_size),
+        }
     }
 }

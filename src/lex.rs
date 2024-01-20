@@ -10,7 +10,7 @@ use thiserror::Error;
 pub enum ErrorKind {
     /// オーバーフローを含む
     #[error("Token \"{token}\" cannot parse to integer.")]
-    ParseIntError { token: String },
+    ParseIntError { token: Box<str> },
     #[error("encoding error.")]
     EncodeError,
 }
@@ -23,15 +23,22 @@ pub struct Error {
 }
 
 impl Error {
-    fn new_parse_int_error(_: usize, _: usize, token: String) -> Self {
+    const fn new_parse_int_error(token: Box<str>) -> Self {
         Self {
             inner: ErrorKind::ParseIntError { token },
         }
     }
-    fn new_encode_error(_: usize, _: usize) -> Self {
+
+    const fn encode_error() -> Self {
         Self {
             inner: ErrorKind::EncodeError,
         }
+    }
+}
+
+impl From<char_gen::EncodeError> for Error {
+    fn from(_: char_gen::EncodeError) -> Self {
+        Self::encode_error()
     }
 }
 
@@ -43,7 +50,7 @@ mod test {
     fn error_test() {
         let e = Error {
             inner: ErrorKind::ParseIntError {
-                token: "100a".to_owned(),
+                token: "100a".into(),
             },
         };
         assert_eq!(e.to_string(), "Token \"100a\" cannot parse to integer.");

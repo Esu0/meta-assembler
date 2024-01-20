@@ -1,0 +1,113 @@
+#general_definition
+	*word_size			8
+	*address_size		16
+	*how_operations		60
+	*how_labels			256
+	*how_equs			16
+	*how_tables			2
+	*how_entrys			6
+	*empty_symbol_mode	2
+	*org				ORG
+	*end				END
+	*equ				EQU
+	*db					DB
+	*ds                 DS
+	*dc                 DC
+	*code_dot			.
+	*operand_dot		,
+	*dc_dot             "
+	*address_mode		2
+#end
+;
+#table_definition
+;
+	*table 	0
+		R0	000
+		R1	001
+		R2	010
+		R3 	011
+		R4	100
+		R5	101
+;
+	*table	1
+		X0	00
+		X1	01
+		X2	10
+;
+#end
+;
+#rule_definition
+;
+	*use_table	0,1
+;
+MOV		00000000,opr(2:3),opr(1:3),00;
+LD		10100000,000,opr(1:3),00,opr(2:16);
+ST		10100001,opr(2:3),00000,opr(1:16);
+LDX		10100010,000,opr(1:3),opr(3:2),opr(2:16);
+STX		10100011,opr(3:3),000,opr(2:2),opr(1:16);
+MVI		01000000,000,opr(1:3),00,opr(2:8);
+PUSH	10000000,opr(1:3),00000;
+POP		10000001,000,opr(1:3),00;
+PUSHF	10000000,11100000;
+POPF	10000001,00011100;
+;
+MOVD	01010000,0,opr(2:2),0,opr(1:2),00;
+LDD		10101000,0000,opr(1:2),00,opr(2:16);
+STD		10101001,0,opr(2:2),0000,opr(1:16);
+LDDX	10101010,0000,opr(1:2),opr(3:2),opr(2:16);
+STDX	10101011,0,opr(2:2),000,opr(3:2),opr(1:16);
+MVID	01110000,0000,opr(1:2),00,opr(2:16);
+MVISP	01110000,00010100,opr(2:16);
+PUSHD	10001000,0,opr(1:2),00000;
+POPD	10001001,0000,opr(1:2),00;
+;
+JMP		11000000,opr(1:16);
+JMPX	1101,opr(2:2),00,opr(1:16);
+JM		11001000,opr(1:16);
+JP		11001001,opr(1:16);
+JZ		11001010,opr(1:16);
+JNZ		11001011,opr(1:16);
+JC		11001100,opr(1:16);
+JNC		11001101,opr(1:16);
+CALL	11100000,opr(1:16);
+RET		11100001;
+;
+ADD		00000110,opr(2:3),opr(1:3),00;
+ADC		00100110,opr(2:3),opr(1:3),00;
+SUB		00001011,opr(2:3),opr(1:3),00;
+SBB		00101010,opr(2:3),opr(1:3),00;
+AND		00001000,opr(2:3),opr(1:3),00;
+OR 		00000010,opr(2:3),opr(1:3),00;
+EOR		00000100,opr(2:3),opr(1:3),00;
+;
+ADDI	01000110,000,opr(1:3),00,opr(2:8);
+ADCI	01100110,000,opr(1:3),00,opr(2:8);
+SUBI	01001011,000,opr(1:3),00,opr(2:8);
+SBBI	01101010,000,opr(1:3),00,opr(2:8);
+ANDI	01001000,000,opr(1:3),00,opr(2:8);
+ORI		01000010,000,opr(1:3),00,opr(2:8);
+EORI	01000100,000,opr(1:3),00,opr(2:8);
+;
+NOT		00001100,opr(2:3),opr(1:3),00;
+INC		00000001,opr(2:3),opr(1:3),00;
+DEC		00010100,opr(2:3),opr(1:3),00;
+SRL		00011000,opr(2:3),opr(1:3),00;
+SLL		00011100,opr(2:3),opr(1:3),00;
+SRA		00011011,opr(2:3),opr(1:3),00;
+SLA		00011100,opr(2:3),opr(1:3),00;
+RR		00011010,opr(2:3),opr(1:3),00;
+RL		00011111,opr(2:3),opr(1:3),00;
+RRC		00111000,opr(2:3),opr(1:3),00;
+RLC		00111100,opr(2:3),opr(1:3),00;
+;
+ADDD	01010110,0,opr(2:2),0,opr(1:2),00;
+SUBD	01011011,0,opr(2:2),0,opr(1:2),00;
+ADDDI	01110110,0000,opr(1:2),00,opr(2:16);
+SUBDI	01111011,0000,opr(1:2),00,opr(2:16);
+INCD	01010001,0,opr(2:2),0,opr(1:2),00;
+DECD	01010100,0,opr(2:2),0,opr(1:2),00;
+;
+NOP		00000000,00000000;
+;
+#end
+

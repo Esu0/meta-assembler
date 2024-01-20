@@ -203,6 +203,14 @@ pub struct Rule {
     relative: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RuleConfig {
+    pub operands: Vec<OperandRule>,
+    pub code: Vec<u8>,
+    pub opr_code: Vec<OprCode>,
+    pub relative: bool,
+}
+
 /// gmetaでいう`opr(1:16)`のような構文に対応する概念
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OprCode {
@@ -214,6 +222,16 @@ pub struct OprCode {
     length: u8,
     /// オペランドのコードの開始位置
     position: u16,
+}
+
+impl OprCode {
+    fn new(opr: u8, length: u8, position: u16) -> Self {
+        Self {
+            opr,
+            length,
+            position,
+        }
+    }
 }
 
 /// テーブルによる指定は通常、レジスタの指定などに使われるため、アドレスの指定に
@@ -272,6 +290,17 @@ impl TableKey {
         }
     }
 
+    /// 即値を禁止してテーブルのみ使用可能にする。
+    /// 使用できるテーブルが無い場合は失敗し、`false`を返す。
+    pub fn disable_immediate(&mut self) -> bool {
+        if let Some(new) = NonZeroU64::new(self.index.get() & !1) {
+            self.index = new;
+            true
+        } else {
+            false
+        }
+    }
+
     /// 即値のみ使用可能なら`true`、一つでもテーブルが使用可能または即値が使用不可能なら`false`
     pub fn is_immediate_only(&self) -> bool {
         self.index.get() == 1
@@ -311,7 +340,7 @@ const MAX_TABLE_BIT_LENGTH_BYTE: usize = 8;
 const _: () = assert!(MAX_TABLE_BIT_LENGTH_BYTE <= 16);
 
 /// テーブルによって指定されるビット列を表す構造体
-/// 
+///
 /// この構造体の参照は`&[u8]`として扱える
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TableBits([u8; MAX_TABLE_BIT_LENGTH_BYTE]);
@@ -323,7 +352,9 @@ impl TableBits {
             "length must be less than or equal to MAX_TABLE_BIT_LENGTH_BYTE * 8"
         );
         Self(unsafe {
-            n.checked_shl((128 - length) as _).unwrap_or_default().to_be_bytes()[..MAX_TABLE_BIT_LENGTH_BYTE]
+            n.checked_shl((128 - length) as _)
+                .unwrap_or_default()
+                .to_be_bytes()[..MAX_TABLE_BIT_LENGTH_BYTE]
                 .try_into() // this is always success because slice length is MAX_TABLE_BIT_LENGTH_BYTE
                 .unwrap_unchecked() // therefore, this is safe
         })
@@ -373,6 +404,11 @@ impl Table {
     }
 }
 
+impl From<HashMap<Box<str>, TableBits>> for Table {
+    fn from(value: HashMap<Box<str>, TableBits>) -> Self {
+        Self { tbl: value }
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TablesConfig {
     tbls: Vec<Table>,
@@ -440,7 +476,11 @@ impl ImmediateValue {
             "word_size * length must be less than or equal to 128"
         );
         if word_size == 8 {
-            return (self.0 & !(!0u128).checked_shl((count * word_size) as _).unwrap_or_default()).to_le_bytes();
+            return (self.0
+                & !(!0u128)
+                    .checked_shl((count * word_size) as _)
+                    .unwrap_or_default())
+            .to_le_bytes();
         } else if word_size == 128 {
             return self.0.to_be_bytes();
         }
@@ -456,7 +496,10 @@ impl ImmediateValue {
 
     fn to_be_bytes(self, length: u8) -> [u8; 16] {
         assert!(length <= 128, "length must be less than or equal to 128");
-        self.0.checked_shl(128 - length as u32).unwrap_or_default().to_be_bytes()
+        self.0
+            .checked_shl(128 - length as u32)
+            .unwrap_or_default()
+            .to_be_bytes()
     }
 }
 
@@ -504,7 +547,7 @@ struct LabelTable {
     tbl: HashMap<Box<str>, ImmediateValue>,
 }
 
-fn write_bits_slice(slc: &mut [u8], bits: &[u8], pos: usize, len_last: u8) {
+pub fn write_bits_slice(slc: &mut [u8], bits: &[u8], pos: usize, len_last: u8) {
     debug_assert!((1..=8).contains(&len_last));
     if bits.is_empty() {
         return;
@@ -835,7 +878,7 @@ mod test {
             &general_rule,
         );
 
-        use crate::bit_slice::{slice_bit, Hex, Bin, separate_into_word};
+        use crate::bit_slice::{separate_into_word, slice_bit, Bin, Hex};
         match result {
             Ok(result) => {
                 println!("{:?}", slice_bit::<Bin>(&result));

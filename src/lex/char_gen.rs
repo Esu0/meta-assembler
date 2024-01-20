@@ -2,7 +2,7 @@ use std::io::{self, BufRead};
 
 use utf8_chars::BufReadCharsExt;
 
-use super::{token_gen::TokenGenerator, word_gen::WordGenerator};
+use super::word_gen::WordGenerator;
 
 /// 位置情報付きの文字のイテレータ
 #[derive(Clone, Debug)]
@@ -17,13 +17,6 @@ impl<C> CharGenerator<C> {
     /// 現在の位置を返す
     pub fn position(&self) -> (usize, usize) {
         (self.line, self.column)
-    }
-
-    pub fn into_token_generator(self) -> TokenGenerator<C>
-    where
-        C: Iterator<Item = io::Result<char>>,
-    {
-        TokenGenerator::new(self)
     }
 }
 
@@ -75,7 +68,7 @@ impl<C: Iterator<Item = io::Result<char>>> CharGeneratorTrait for CharGenerator<
         }
     }
 
-    fn peek(&mut self) -> Option<Result<char, EncodeError>> {
+    fn peek(&self) -> Option<Result<char, EncodeError>> {
         self.current
     }
 }
@@ -96,16 +89,19 @@ pub trait CharGeneratorTrait {
     /// 次の文字を読み進める。
     fn next_char(&mut self) -> Option<Result<char, EncodeError>>;
     /// 次の文字を、読み進めずに返す。
-    fn peek(&mut self) -> Option<Result<char, EncodeError>>;
+    fn peek(&self) -> Option<Result<char, EncodeError>>;
 
     /// `Result<char, EncodeError>`のイテレータを返す。
-    fn chars(&mut self) -> Chars<Self> {
+    fn chars(self) -> impl Iterator<Item = Result<char, EncodeError>>
+    where
+        Self: Sized,
+    {
         Chars { inner: self }
     }
 
     /// `predicate`が`false`を返すまでの文字を取り出す。
     /// エンコード不可文字が見つかったらイテレータは`None`を返す。
-    fn take_while<P>(&mut self, predicate: P) -> TakeWhile<Self, P>
+    fn take_while<P>(&mut self, predicate: P) -> impl Iterator<Item = char>
     where
         P: FnMut(char) -> bool,
     {
@@ -117,7 +113,7 @@ pub trait CharGeneratorTrait {
 
     /// `predicate`に`self`を使いたい場合に`take_while`の代わりに使う。
     /// `self`を使わない場合は`take_while`関数を使う。
-    fn take_while_with_self<P>(&mut self, predicate: P) -> TakeWhileWithSelf<Self, P>
+    fn take_while_with_self<P>(&mut self, predicate: P) -> impl Iterator<Item = char>
     where
         P: FnMut(&mut Self, char) -> bool,
     {
@@ -133,6 +129,15 @@ pub trait CharGeneratorTrait {
         P: FnMut(Result<char, EncodeError>) -> bool,
     {
         while self.peek().map_or(false, &mut predicate) {
+            self.next_char();
+        }
+    }
+
+    fn skip_while_with_self<P>(&mut self, mut predicate: P)
+    where
+        P: FnMut(&mut Self, Result<char, EncodeError>) -> bool,
+    {
+        while self.peek().map_or(false, |c| predicate(self, c)) {
             self.next_char();
         }
     }
@@ -178,7 +183,7 @@ pub trait CharGeneratorTrait {
 #[error("エンコードできない文字が含まれています。")]
 pub struct EncodeError;
 
-pub struct TakeWhile<'a, C: CharGeneratorTrait + ?Sized, P: FnMut(char) -> bool> {
+struct TakeWhile<'a, C: CharGeneratorTrait + ?Sized, P: FnMut(char) -> bool> {
     inner: &'a mut C,
     predicate: P,
 }
@@ -196,7 +201,7 @@ impl<'a, C: CharGeneratorTrait + ?Sized, P: FnMut(char) -> bool> Iterator for Ta
     }
 }
 
-pub struct TakeWhileWithSelf<'a, C: CharGeneratorTrait + ?Sized, P: FnMut(&mut C, char) -> bool> {
+struct TakeWhileWithSelf<'a, C: CharGeneratorTrait + ?Sized, P: FnMut(&mut C, char) -> bool> {
     inner: &'a mut C,
     predicate: P,
 }
@@ -216,11 +221,11 @@ impl<'a, C: CharGeneratorTrait + ?Sized, P: FnMut(&mut C, char) -> bool> Iterato
     }
 }
 
-pub struct Chars<'a, T: CharGeneratorTrait + ?Sized> {
-    inner: &'a mut T,
+struct Chars<T: CharGeneratorTrait + ?Sized> {
+    inner: T,
 }
 
-impl<'a, T: CharGeneratorTrait + ?Sized> Iterator for Chars<'a, T> {
+impl<T: CharGeneratorTrait + ?Sized> Iterator for Chars<T> {
     type Item = Result<char, EncodeError>;
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next_char()
