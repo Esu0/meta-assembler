@@ -18,16 +18,19 @@ pub struct Rules {
     general: GeneralRule,
 }
 
-/// 二重定義エラー
 #[derive(Debug)]
-pub struct DoubleDefinitionError {
-    rule_name: Box<str>,
+pub enum ConfigError {
+    DoubleDefinitionError { rule_name: Box<str> },
+    InvalidValue { msg: Box<str> },
 }
 
-impl From<DoubleDefinitionError> for super::ErrorKind {
-    fn from(value: DoubleDefinitionError) -> Self {
-        Self::AlreadyExsistentProperty {
-            found: value.rule_name,
+impl From<ConfigError> for super::ErrorKind {
+    fn from(value: ConfigError) -> Self {
+        match value {
+            ConfigError::DoubleDefinitionError { rule_name } => {
+                Self::AlreadyExsistentProperty { found: rule_name }
+            }
+            ConfigError::InvalidValue { msg } => Self::InvalidConfigValue { msg },
         }
     }
 }
@@ -49,9 +52,9 @@ pub struct GeneralRuleConfig {
 }
 
 impl GeneralRuleConfig {
-    fn set_value(dst: &mut Option<u8>, src: u8) -> Result<(), DoubleDefinitionError> {
+    fn set_value(dst: &mut Option<u8>, src: u8) -> Result<(), ConfigError> {
         if dst.is_some() {
-            Err(DoubleDefinitionError {
+            Err(ConfigError::DoubleDefinitionError {
                 rule_name: "general".into(),
             })
         } else {
@@ -59,33 +62,130 @@ impl GeneralRuleConfig {
             Ok(())
         }
     }
-    pub fn set_word_size(&mut self, word_size: u8) -> Result<(), DoubleDefinitionError> {
-        Self::set_value(&mut self.word_size, word_size)
+
+    fn check_addr(&self) -> Result<(), ConfigError> {
+        let Some(word_size) = self.word_size else {
+            return Ok(());
+        };
+        let Some(address_size) = self.address_size else {
+            return Ok(());
+        };
+        if address_size % word_size != 0 {
+            Err(ConfigError::InvalidValue {
+                msg: "address_sizeはword_sizeの倍数でなければなりません。".into(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn check_imm(&self) -> Result<(), ConfigError> {
+        let Some(word_size) = self.word_size else {
+            return Ok(());
+        };
+        let Some(immediate_size) = self.immediate_size else {
+            return Ok(());
+        };
+        if immediate_size % word_size != 0 {
+            Err(ConfigError::InvalidValue {
+                msg: "immediate_sizeはword_sizeの倍数でなければなりません。".into(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn check_address_mode(&self) -> Result<(), ConfigError> {
+        let Some(address_mode) = self.address_mode else {
+            return Ok(());
+        };
+        if address_mode >= 4 {
+            Err(ConfigError::InvalidValue {
+                msg: "address_modeは0から3の間でなければなりません。".into(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn check_empty_symbol_mode(&self) -> Result<(), ConfigError> {
+        let Some(empty_symbol_mode) = self.empty_symbol_mode else {
+            return Ok(());
+        };
+        if empty_symbol_mode >= 4 {
+            Err(ConfigError::InvalidValue {
+                msg: "empty_symbol_modeは0から3の間でなければなりません。".into(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn set_word_size(&mut self, word_size: u8) -> Result<(), ConfigError> {
+        Self::set_value(&mut self.word_size, word_size)?;
+        self.check_addr()?;
+        self.check_imm()
     }
 
     /// [`Self::address_size`]は[`Self::word_size`]の倍数である必要があるが、
     /// この実装では判定ができない。実装の変更を予定している。
-    pub fn set_address_size(&mut self, address_size: u8) -> Result<(), DoubleDefinitionError> {
-        Self::set_value(&mut self.address_size, address_size)
+    pub fn set_address_size(&mut self, address_size: u8) -> Result<(), ConfigError> {
+        Self::set_value(&mut self.address_size, address_size)?;
+        self.check_addr()
     }
 
     /// [`Self::immediate_size`]は[`Self::word_size`]の倍数である必要があるが、
     /// この実装では判定ができない。実装の変更を予定している。
-    pub fn set_immediate_size(&mut self, immediate_size: u8) -> Result<(), DoubleDefinitionError> {
-        Self::set_value(&mut self.immediate_size, immediate_size)
+    pub fn set_immediate_size(&mut self, immediate_size: u8) -> Result<(), ConfigError> {
+        Self::set_value(&mut self.immediate_size, immediate_size)?;
+        self.check_imm()
     }
 
     /// Invalidな値でエラーを返すように変更する必要あり
-    pub fn set_address_mode(&mut self, address_mode: u8) -> Result<(), DoubleDefinitionError> {
-        Self::set_value(&mut self.address_mode, address_mode)
+    pub fn set_address_mode(&mut self, address_mode: u8) -> Result<(), ConfigError> {
+        Self::set_value(&mut self.address_mode, address_mode)?;
+        self.check_address_mode()
     }
 
     /// Invalidな値でエラーを返すように変更する必要あり
-    pub fn set_empty_symbol_mode(
+    pub fn set_empty_symbol_mode(&mut self, empty_symbol_mode: u8) -> Result<(), ConfigError> {
+        Self::set_value(&mut self.empty_symbol_mode, empty_symbol_mode)?;
+        self.check_empty_symbol_mode()
+    }
+
+    pub fn set_by_token_generator(
         &mut self,
-        empty_symbol_mode: u8,
-    ) -> Result<(), DoubleDefinitionError> {
-        Self::set_value(&mut self.empty_symbol_mode, empty_symbol_mode)
+        key: &str,
+        token_generator: &mut impl TokenGeneratorTrait,
+    ) -> Result<bool, super::ErrorKind> {
+        match key {
+            "word_size" => {
+                let n = token_generator.expect_number_in_range(1, u8::MAX as _)?;
+                self.set_word_size(n as u8)?;
+                Ok(true)
+            }
+            "address_size" => {
+                let n = token_generator.expect_number_in_range(1, u8::MAX as _)?;
+                self.set_address_size(n as u8)?;
+                Ok(true)
+            }
+            "immediate_size" => {
+                let n = token_generator.expect_number_in_range(1, u8::MAX as _)?;
+                self.set_immediate_size(n as u8)?;
+                Ok(true)
+            }
+            "address_mode" => {
+                let n = token_generator.expect_number_in_range(0, 3)?;
+                self.set_address_mode(n as u8)?;
+                Ok(true)
+            }
+            "empty_symbol_mode" => {
+                let n = token_generator.expect_number_in_range(0, 3)?;
+                self.set_empty_symbol_mode(n as u8)?;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
     }
 }
 
@@ -145,6 +245,55 @@ pub struct SyntaxRuleConfig {
     pub dc_dot: Option<char>,
 }
 
+impl SyntaxRuleConfig {
+    fn as_mut_box_str_by_key(&mut self, key: &str) -> Option<&mut Option<Box<str>>> {
+        match key {
+            "org" => Some(&mut self.org),
+            "end" => Some(&mut self.end),
+            "equ" => Some(&mut self.equ),
+            "db" => Some(&mut self.db),
+            "ds" => Some(&mut self.ds),
+            "dc" => Some(&mut self.dc),
+            _ => None,
+        }
+    }
+
+    fn as_mut_char_by_key(&mut self, key: &str) -> Option<&mut Option<char>> {
+        match key {
+            "code_dot" => Some(&mut self.code_dot),
+            "operand_dot" => Some(&mut self.operand_dot),
+            "dc_dot" => Some(&mut self.dc_dot),
+            _ => None,
+        }
+    }
+
+    pub fn set_by_token_generator(
+        &mut self,
+        key: &str,
+        token_generator: &mut impl TokenGeneratorTrait,
+    ) -> Result<bool, super::ErrorKind> {
+        fn config<U>(dst: &mut Option<U>, conf: U, key: &str) -> Result<(), super::ErrorKind> {
+            if dst.is_some() {
+                Err(super::ErrorKind::AlreadyExsistentProperty { found: key.into() })
+            } else {
+                *dst = Some(conf);
+                Ok(())
+            }
+        }
+
+        if let Some(dst) = self.as_mut_box_str_by_key(key) {
+            let s = token_generator.expect_identifier()?;
+            config(dst, s, key)?;
+            Ok(true)
+        } else if let Some(dst) = self.as_mut_char_by_key(key) {
+            let s = token_generator.expect_operator_single()?;
+            config(dst, s, key)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SyntaxRule {
     org: Box<str>,
@@ -394,9 +543,9 @@ impl Table {
         }
     }
 
-    pub fn add(&mut self, name: Box<str>, val: TableBits) -> Result<(), DoubleDefinitionError> {
+    pub fn add(&mut self, name: Box<str>, val: TableBits) -> Result<(), ConfigError> {
         if self.tbl.contains_key(name.as_ref()) {
-            Err(DoubleDefinitionError { rule_name: name })
+            Err(ConfigError::DoubleDefinitionError { rule_name: name })
         } else {
             self.tbl.insert(name, val);
             Ok(())
@@ -418,7 +567,7 @@ pub struct TablesConfig {
 impl TablesConfig {
     pub fn add_table(&mut self, name: Box<str>, tbl: Table) -> Result<(), tables::Error> {
         if self.names.contains_key(name.as_ref()) {
-            Err(DoubleDefinitionError { rule_name: name }.into())
+            Err(ConfigError::DoubleDefinitionError { rule_name: name }.into())
         } else {
             self.names.insert(name, self.tbls.len());
             self.tbls.push(tbl);
@@ -444,22 +593,20 @@ pub mod tables {
 
     #[derive(Debug)]
     pub enum Error {
-        DoubleDefinitionError(super::DoubleDefinitionError),
+        ConfigError(super::ConfigError),
         TooManyTables,
     }
 
-    impl From<super::DoubleDefinitionError> for Error {
-        fn from(value: super::DoubleDefinitionError) -> Self {
-            Self::DoubleDefinitionError(value)
+    impl From<super::ConfigError> for Error {
+        fn from(value: super::ConfigError) -> Self {
+            Self::ConfigError(value)
         }
     }
 
     impl From<Error> for ErrorKind {
         fn from(value: Error) -> Self {
             match value {
-                Error::DoubleDefinitionError(e) => {
-                    Self::AlreadyExsistentProperty { found: e.rule_name }
-                }
+                Error::ConfigError(e) => e.into(),
                 Error::TooManyTables => Self::TooManyTables,
             }
         }
@@ -774,6 +921,10 @@ impl Rule {
 }
 
 use thiserror::Error;
+
+use crate::lex::token_gen::TokenGeneratorTrait;
+
+use super::cgr::TokenGeneratorTraitExt;
 
 #[derive(Debug, Error)]
 pub enum ErrorKind {

@@ -1,4 +1,4 @@
-use std::io::{self, BufRead};
+use std::io::BufRead;
 
 use utf8_chars::BufReadCharsExt;
 
@@ -6,46 +6,46 @@ use super::word_gen::WordGenerator;
 
 /// 位置情報付きの文字のイテレータ
 #[derive(Clone, Debug)]
-pub struct CharGenerator<C> {
-    chars: C,
+pub struct CharGenerator<R> {
+    reader: R,
     current: Option<Result<char, EncodeError>>,
     line: usize,
     column: usize,
 }
 
-impl<C> CharGenerator<C> {
+impl<R> CharGenerator<R> {
     /// 現在の位置を返す
     pub fn position(&self) -> (usize, usize) {
         (self.line, self.column)
     }
 }
 
-impl<C: Iterator<Item = io::Result<char>>> CharGenerator<C> {
+impl<R: BufRead> CharGenerator<R> {
     pub fn into_word_generator(self) -> WordGenerator<Self> {
         WordGenerator::new(self)
     }
 }
 
-impl<'a, R: BufRead> CharGenerator<utf8_chars::Chars<'a, R>> {
-    pub fn new(reader: &'a mut R) -> Self {
-        let mut chars = reader.chars();
+impl<R: BufRead> CharGenerator<R> {
+    pub fn new(mut reader: R) -> Self {
         Self {
-            current: chars.next().map(|r| r.map_err(|_| EncodeError)),
-            chars: reader.chars(),
+            current: reader.read_char_raw().map_err(|_| EncodeError).transpose(),
+            reader,
             line: 1,
             column: 1,
         }
     }
 }
 
-impl<C: Iterator<Item = io::Result<char>>> Iterator for CharGenerator<C> {
+impl<R: BufRead> Iterator for CharGenerator<R> {
     type Item = Result<char, EncodeError>;
     fn next(&mut self) -> Option<Self::Item> {
         self.next_char()
     }
 }
 
-impl<C: Iterator<Item = io::Result<char>>> CharGeneratorTrait for CharGenerator<C> {
+impl<R: BufRead> CharGeneratorTrait for CharGenerator<R> {
+    #[inline]
     fn reader_position(&self) -> (usize, usize) {
         (self.line, self.column)
     }
@@ -53,7 +53,10 @@ impl<C: Iterator<Item = io::Result<char>>> CharGeneratorTrait for CharGenerator<
     fn next_char(&mut self) -> Option<Result<char, EncodeError>> {
         match std::mem::replace(
             &mut self.current,
-            self.chars.next().map(|r| r.map_err(|_| EncodeError)),
+            self.reader
+                .read_char_raw()
+                .map_err(|_| EncodeError)
+                .transpose(),
         ) {
             Some(Ok('\n')) => {
                 self.line += 1;
@@ -68,6 +71,7 @@ impl<C: Iterator<Item = io::Result<char>>> CharGeneratorTrait for CharGenerator<
         }
     }
 
+    #[inline]
     fn peek(&self) -> Option<Result<char, EncodeError>> {
         self.current
     }
@@ -92,6 +96,7 @@ pub trait CharGeneratorTrait {
     fn peek(&self) -> Option<Result<char, EncodeError>>;
 
     /// `Result<char, EncodeError>`のイテレータを返す。
+    #[inline]
     fn chars(self) -> impl Iterator<Item = Result<char, EncodeError>>
     where
         Self: Sized,
@@ -101,6 +106,7 @@ pub trait CharGeneratorTrait {
 
     /// `predicate`が`false`を返すまでの文字を取り出す。
     /// エンコード不可文字が見つかったらイテレータは`None`を返す。
+    #[inline]
     fn take_while<P>(&mut self, predicate: P) -> impl Iterator<Item = char>
     where
         P: FnMut(char) -> bool,
@@ -113,6 +119,7 @@ pub trait CharGeneratorTrait {
 
     /// `predicate`に`self`を使いたい場合に`take_while`の代わりに使う。
     /// `self`を使わない場合は`take_while`関数を使う。
+    #[inline]
     fn take_while_with_self<P>(&mut self, predicate: P) -> impl Iterator<Item = char>
     where
         P: FnMut(&mut Self, char) -> bool,
@@ -124,6 +131,7 @@ pub trait CharGeneratorTrait {
     }
 
     /// `predicate`が`true`を返している間、文字をスキップする。
+    #[inline]
     fn skip_while<P>(&mut self, mut predicate: P)
     where
         P: FnMut(Result<char, EncodeError>) -> bool,
@@ -133,6 +141,7 @@ pub trait CharGeneratorTrait {
         }
     }
 
+    #[inline]
     fn skip_while_with_self<P>(&mut self, mut predicate: P)
     where
         P: FnMut(&mut Self, Result<char, EncodeError>) -> bool,
@@ -144,18 +153,23 @@ pub trait CharGeneratorTrait {
 
     /// 改行以外の空白文字をスキップする。
     /// ここでいう空白文字とは`char::is_ascii_whitespace`で`true`を返す文字
-    fn skip_spaces(&mut self) {
-        self.skip_while(|c| c.map_or(false, |c| c.is_ascii_whitespace() && c != '\n'))
+    #[inline]
+    fn skip_spaces(&mut self) -> &mut Self {
+        self.skip_while(|c| c.map_or(false, |c| c.is_ascii_whitespace() && c != '\n'));
+        self
     }
 
     /// 空白文字をスキップする。
     /// ここでいう空白文字とは`char::is_ascii_whitespace`で`true`を返す文字
-    fn skip_whitespaces(&mut self) {
-        self.skip_while(|c| c.map_or(false, |c| c.is_ascii_whitespace()))
+    #[inline]
+    fn skip_whitespaces(&mut self) -> &mut Self {
+        self.skip_while(|c| c.map_or(false, |c| c.is_ascii_whitespace()));
+        self
     }
 
     /// 次の文字が`c`と一致したら文字を読み進め、`true`を返す。
     /// 一致しない場合は文字を読み進めず、`false`を返す。
+    #[inline]
     fn consume(&mut self, c: char) -> bool {
         if self.peek() == Some(Ok(c)) {
             self.next_char();
@@ -167,6 +181,7 @@ pub trait CharGeneratorTrait {
 
     /// 次の文字を`f`に渡し、`true`が返されたら文字を読み進め、`true`を返す。
     /// `false`が返されたら文字を読み進めず、`false`を返す。
+    #[inline]
     fn consume_with<F: FnOnce(char) -> bool>(&mut self, f: F) -> bool {
         if let Some(Ok(c)) = self.peek() {
             if f(c) {
@@ -190,6 +205,7 @@ struct TakeWhile<'a, C: CharGeneratorTrait + ?Sized, P: FnMut(char) -> bool> {
 
 impl<'a, C: CharGeneratorTrait + ?Sized, P: FnMut(char) -> bool> Iterator for TakeWhile<'a, C, P> {
     type Item = char;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         match self.inner.peek() {
             Some(Ok(c)) if (self.predicate)(c) => {
@@ -210,6 +226,7 @@ impl<'a, C: CharGeneratorTrait + ?Sized, P: FnMut(&mut C, char) -> bool> Iterato
     for TakeWhileWithSelf<'a, C, P>
 {
     type Item = char;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         match self.inner.peek() {
             Some(Ok(c)) if (self.predicate)(self.inner, c) => {
@@ -227,6 +244,7 @@ struct Chars<T: CharGeneratorTrait + ?Sized> {
 
 impl<T: CharGeneratorTrait + ?Sized> Iterator for Chars<T> {
     type Item = Result<char, EncodeError>;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next_char()
     }
@@ -239,8 +257,8 @@ mod test {
 
     #[test]
     fn char_generator_test() {
-        let mut buf = "你好，世界！\nHello, world!\n".as_bytes();
-        let mut chars = CharGenerator::new(&mut buf);
+        let buf = "你好，世界！\nHello, world!\n".as_bytes();
+        let mut chars = CharGenerator::new(buf);
         assert_eq!(chars.next_char().unwrap().unwrap(), '你');
         assert_eq!(chars.next_char().unwrap().unwrap(), '好');
         assert_eq!(chars.next_char().unwrap().unwrap(), '，');

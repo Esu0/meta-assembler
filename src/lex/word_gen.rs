@@ -128,20 +128,24 @@ impl<C: CharGeneratorTrait> WordGenerator<C> {
 }
 
 impl<C: CharGeneratorTrait> WordGeneratorTrait for WordGenerator<C> {
+    #[inline]
     fn is_separator(&self, c: char) -> bool {
         self.separators.is_separator(c)
     }
 }
 
 impl<C: CharGeneratorTrait> CharGeneratorTrait for WordGenerator<C> {
+    #[inline]
     fn next_char(&mut self) -> Option<Result<char, EncodeError>> {
         self.char_gen.next_char()
     }
 
+    #[inline]
     fn peek(&self) -> Option<Result<char, EncodeError>> {
         self.char_gen.peek()
     }
 
+    #[inline]
     fn reader_position(&self) -> (usize, usize) {
         self.char_gen.reader_position()
     }
@@ -203,6 +207,7 @@ pub trait WordGeneratorTrait: CharGeneratorTrait {
     /// `Result<Word, EncodeError>`のイテレータを返す。
     ///
     /// このイテレータが`None`を返すことはEOFを意味する。
+    #[inline]
     fn words(&mut self) -> Words<Self> {
         Words { word_gen: self }
     }
@@ -210,6 +215,7 @@ pub trait WordGeneratorTrait: CharGeneratorTrait {
     /// 次に単語が来る場合は、その単語を返し、そうでない場合は読み進めずに`None`を返す。
     ///
     /// 直後に空白文字が来た場合も`None`を返す。
+    #[inline]
     fn consume_identdigit(&mut self) -> Option<Box<str>> {
         if let Some(Ok(WordKind::IdentDigit)) = self.next_word_kind() {
             Some(self.get_identdigit_or_panic())
@@ -219,13 +225,16 @@ pub trait WordGeneratorTrait: CharGeneratorTrait {
     }
 
     /// 次に返される`Result<Word, EncodeError>`を無視する
+    #[inline]
     fn ignore_next_word(&mut self) {
         if let Some(kind) = self.next_word_kind() {
             match kind {
                 Ok(WordKind::NewLine | WordKind::Separator) | Err(_) => {
                     self.next_char();
                 }
-                Ok(WordKind::Spaces) => self.skip_spaces(),
+                Ok(WordKind::Spaces) => {
+                    self.skip_spaces();
+                }
                 Ok(WordKind::IdentDigit) => self.ignore_identdigit(),
             }
         }
@@ -234,6 +243,7 @@ pub trait WordGeneratorTrait: CharGeneratorTrait {
     /// 直後に来る指定した種類の`Word`を無視する。
     ///
     /// 実際に読み進めた場合は`true`を返し、読み進めなかった場合は`false`を返す。
+    #[inline]
     fn ignore_word_of(&mut self, kind: WordKind) -> bool {
         if matches!(self.next_word_kind(), Some(Ok(k)) if k == kind) {
             self.next_word();
@@ -245,12 +255,14 @@ pub trait WordGeneratorTrait: CharGeneratorTrait {
 }
 
 trait WordGenPrivate: WordGeneratorTrait {
+    #[inline]
     fn get_identdigit(&mut self) -> Box<str> {
         self.take_while_with_self(|this, c| !(this.is_separator(c) || c.is_ascii_whitespace()))
             .collect::<String>()
             .into_boxed_str()
     }
 
+    #[inline]
     fn get_identdigit_or_panic(&mut self) -> Box<str> {
         let tmp = self.get_identdigit();
         if tmp.is_empty() {
@@ -259,6 +271,7 @@ trait WordGenPrivate: WordGeneratorTrait {
         tmp
     }
 
+    #[inline]
     fn ignore_identdigit(&mut self) {
         self.skip_while_with_self(|this, c| {
             c.map_or(false, |c| {
@@ -276,6 +289,7 @@ pub struct Words<'a, W: WordGeneratorTrait + ?Sized> {
 
 impl<'a, W: WordGeneratorTrait + ?Sized> Iterator for Words<'a, W> {
     type Item = Result<Word, EncodeError>;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.word_gen.next_word()
     }
@@ -289,15 +303,14 @@ mod test {
 
     #[test]
     fn word_gen_test() {
-        let mut buf = b"abc def".as_ref();
-        let mut gen = CharGenerator::new(&mut buf).into_word_generator();
+        let s: &[u8] = b"abc def";
+        let mut gen = CharGenerator::new(s).into_word_generator();
         assert_eq!(gen.next_word(), Some(Ok(Word::IdentDigit("abc".into()))));
         assert_eq!(gen.next_word(), Some(Ok(Word::Spaces)));
         assert_eq!(gen.next_word(), Some(Ok(Word::IdentDigit("def".into()))));
 
-        let buf = b"abc def\xFF ieo,;:@ovd123+233@0_0)".as_ref();
-        let mut tmp = buf;
-        let mut gen = CharGenerator::new(&mut tmp).into_word_generator();
+        let s: &[u8] = b"abc def\xFF ieo,;:@ovd123+233@0_0)";
+        let mut gen = CharGenerator::new(s).into_word_generator();
         assert_eq!(gen.consume_identdigit(), Some("abc".into()));
         assert_eq!(gen.consume_identdigit(), None);
         gen.skip_spaces();
@@ -316,8 +329,7 @@ mod test {
         gen.skip_while(|c| c != Ok('@'));
         assert!(gen.consume('@'));
 
-        tmp = buf;
-        let mut gen = CharGenerator::new(&mut tmp).into_word_generator();
+        let mut gen = CharGenerator::new(s).into_word_generator();
         assert_eq!(gen.consume_identdigit(), Some("abc".into()));
         gen.ignore_next_word();
         assert_eq!(gen.consume_identdigit(), Some("def".into()));

@@ -13,12 +13,16 @@ use crate::lex::{char_gen::EncodeError, token_gen::Token};
 pub enum ErrorKind {
     #[error("予期せぬトークン{found}が検出されました。トークン{expected}が予測されます。")]
     UnexpectedToken { expected: Box<str>, found: Box<str> },
+    #[error("トークンが見つかりませんでした。トークン{expected}が予測されます。")]
+    TokenNotFound { expected: Box<str> },
     #[error("数値が範囲外です。範囲は{min}から{max}ですが、{found}が検出されました。")]
     NumOutOfRange { min: i64, max: i64, found: i64 },
     #[error("設定{found}は存在しません。")]
     NonExsistentProperty { found: Box<str> },
     #[error("設定{found}は既に存在します。")]
     AlreadyExsistentProperty { found: Box<str> },
+    #[error("{msg}")]
+    InvalidConfigValue { msg: Box<str> },
     #[error("テーブルの数が最大数を超えました。テーブルは最大63個です。")]
     TooManyTables,
     #[error("ファイルの終端に到達しました。")]
@@ -32,15 +36,23 @@ pub enum ErrorKind {
 }
 
 impl ErrorKind {
-    pub fn unexpected_token(expected: String, found: Token) -> Self {
+    pub fn unexpected_token(expected: Box<str>, found: Token) -> Self {
         Self::UnexpectedToken {
-            expected: expected.into_boxed_str(),
+            expected,
             found: found.to_string().into_boxed_str(),
         }
     }
 
     pub fn num_out_of_range(min: i64, max: i64, found: i64) -> Self {
         Self::NumOutOfRange { min, max, found }
+    }
+
+    pub fn check_num_range(min: i64, max: i64, found: i64) -> Result<(), Self> {
+        if (min..=max).contains(&found) {
+            Ok(())
+        } else {
+            Err(Self::num_out_of_range(min, max, found))
+        }
     }
 }
 
