@@ -2,7 +2,7 @@
 
 pub mod parser;
 
-use std::{collections::HashMap, num::NonZeroU64, ops};
+use std::{collections::HashMap, num::NonZeroU64, ops::{self, BitOrAssign}};
 /// アセンブリのコード生成ルール全体を表す。
 /// ニーモニック一つにルール一つが対応するようになっている。
 /// # 注意
@@ -38,7 +38,15 @@ impl From<ConfigError> for super::ErrorKind {
 /// クレートの外部で[`Rules`]を構築するための構造体
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RulesConfig {
-    rules: HashMap<Box<str>, Rule>,
+    pub rules: HashMap<Box<str>, Rule>,
+}
+
+impl RulesConfig {
+    pub fn new() -> Self {
+        Self {
+            rules: HashMap::new(),
+        }
+    }
 }
 
 /// クレートの外部で[`GeneralRule`]を構築するための構造体
@@ -353,11 +361,33 @@ pub struct Rule {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct RuleConfig {
+pub(super) struct RuleConfig {
     pub operands: Vec<OperandRule>,
     pub code: Vec<u8>,
     pub opr_code: Vec<OprCode>,
     pub relative: bool,
+}
+
+impl RuleConfig {
+    pub(super) const fn new() -> Self {
+        Self {
+            operands: Vec::new(),
+            code: Vec::new(),
+            opr_code: Vec::new(),
+            relative: false,
+        }
+    }
+}
+
+impl From<RuleConfig> for Rule {
+    fn from(value: RuleConfig) -> Self {
+        Self {
+            operands: value.operands.into_boxed_slice(),
+            code: value.code.into_boxed_slice(),
+            opr_code: value.opr_code.into_boxed_slice(),
+            relative: value.relative,
+        }
+    }
 }
 
 /// gmetaでいう`opr(1:16)`のような構文に対応する概念
@@ -374,7 +404,7 @@ pub struct OprCode {
 }
 
 impl OprCode {
-    fn new(opr: u8, length: u8, position: u16) -> Self {
+    pub fn new(opr: u8, length: u8, position: u16) -> Self {
         Self {
             opr,
             length,
@@ -453,6 +483,10 @@ impl TableKey {
     /// 即値のみ使用可能なら`true`、一つでもテーブルが使用可能または即値が使用不可能なら`false`
     pub fn is_immediate_only(&self) -> bool {
         self.index.get() == 1
+    }
+
+    pub fn enable_immediate(&mut self) {
+        self.index |= 1;
     }
 }
 

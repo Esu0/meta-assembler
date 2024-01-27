@@ -31,6 +31,8 @@ pub enum ErrorKind {
     TableNotFound { found: Box<str> },
     #[error("トークン{found}をオペコードに変換できません。")]
     OpeCodeParseError { found: Box<str> },
+    #[error("オペコードが長すぎます。オペコードの長さは最大65536ビットです。")]
+    TooLongOpeCode,
     #[error(transparent)]
     LexicalError(#[from] crate::lex::Error),
 }

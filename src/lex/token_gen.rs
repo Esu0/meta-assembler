@@ -59,6 +59,16 @@ impl From<Token> for String {
     }
 }
 
+impl From<Token> for Box<str> {
+    fn from(value: Token) -> Self {
+        match value {
+            Token::Integer(n) => n.to_string().into(),
+            Token::Opr(s) => s.iter().flatten().collect::<String>().into(),
+            Token::Ident(s) => s,
+        }
+    }
+}
+
 impl ToString for Token {
     fn to_string(&self) -> String {
         match self {

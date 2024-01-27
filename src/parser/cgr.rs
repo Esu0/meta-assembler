@@ -13,7 +13,7 @@ use crate::{
 
 use super::{
     assembly::{
-        table_key, GeneralRuleConfig, RulesConfig, SyntaxRuleConfig, TableKey, TablesConfig,
+        table_key, GeneralRuleConfig, OprCode, RuleConfig, RulesConfig, SyntaxRuleConfig, TableKey, TablesConfig
     },
     Error, ErrorKind,
 };
@@ -141,6 +141,14 @@ pub(super) trait TokenGeneratorTraitExt: TokenGeneratorTrait {
             )),
         }
     }
+
+    fn expect_operator_single_of(&mut self, op: char) -> Result<(), ErrorKind> {
+        if self.consume_operator(op) {
+            Ok(())
+        } else {
+            Err(ErrorKind::UnexpectedToken { expected: op.to_string().into_boxed_str(), found: self.next_char().ok_or(ErrorKind::UnexpectedEof)??.to_string().into_boxed_str() })
+        }
+    }
 }
 
 impl<T: TokenGeneratorTrait> TokenGeneratorTraitExt for T {}
@@ -218,7 +226,7 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                 break;
             }
         }
-        while self.skip_whitespaces().rule_definitions()? {}
+        self.rule_definitions()?;
         Ok(())
     }
 
@@ -286,33 +294,16 @@ impl<T: TokenGeneratorTrait> Parser<T> {
         }
     }
 
-    fn rule_definitions(&mut self) -> Result<bool, ErrorKind> {
-        let tokens = &mut self.token_generator;
-        tokens.skip_whitespaces();
-        if tokens.consume_operator('*') {
-            tokens.expect_ident_of("use_tables")?;
-            while let Some(name) = tokens.consume_identdigit() {
-                let Some(i) = self.tables.get_index(&name) else {
-                    return Err(ErrorKind::TableNotFound { found: name });
-                };
-                table_key::add_index(&mut self.default_tables, i);
-                if !tokens.consume_operator(',') {
-                    break;
-                }
+    fn rule_definitions(&mut self) -> Result<(), ErrorKind> {
+        loop {
+            if self.skip_whitespaces().consume_use_tables()? {
+                continue;
             }
-        } else if tokens.consume_operator('#') {
-            let i = tokens.expect_identifier()?;
-            return match i.as_ref() {
-                "end" => Ok(true),
-                _ => Err(ErrorKind::UnexpectedToken {
-                    expected: "end".into(),
-                    found: i,
-                }),
-            };
-        } else if let Some(i) = tokens.consume_identifier() {
-            // add rule
+            if self.skip_whitespaces().consume_rule_definition()? {
+                continue;
+            }
+            break Ok(());
         }
-        todo!()
     }
 
     fn consume_use_tables(&mut self) -> Result<bool, ErrorKind> {
@@ -320,12 +311,12 @@ impl<T: TokenGeneratorTrait> Parser<T> {
         if tokens.consume_operator('*') {
             tokens.expect_ident_of("use_tables")?;
             self.default_tables = None;
-            while let Some(name) = tokens.consume_identdigit() {
+            while let Some(name) = tokens.skip_whitespaces().consume_identdigit() {
                 let Some(i) = self.tables.get_index(&name) else {
                     return Err(ErrorKind::TableNotFound { found: name });
                 };
                 table_key::add_index(&mut self.default_tables, i);
-                if !tokens.consume_operator(',') {
+                if !tokens.skip_whitespaces().consume_operator(',') {
                     break;
                 }
             }
@@ -338,32 +329,225 @@ impl<T: TokenGeneratorTrait> Parser<T> {
     fn consume_rule_definition(&mut self) -> Result<bool, ErrorKind> {
         let tokens = &mut self.token_generator;
         if let Some(inst) = tokens.consume_identifier() {
+            let mut offset = 8;
+            let mut rule = RuleConfig::new();
+            let default_bit = self.general_rules.empty_symbol_mode.map_or(0, |a| 0u8.wrapping_sub(a & 1));
+            // TODO `RuleConfig::operands`の変更処理
+            if self.token_generator.skip_whitespaces().consume('s') {
+                rule.relative = true;
+                if self.token_generator.skip_whitespaces().consume_operator(',') {
+                    if self.token_generator.skip_whitespaces().consume_operator(';') {
+                        self.rules.rules.insert(inst, rule.into());
+                        return Ok(true);
+                    }
+                } else if self.token_generator.consume_operator(';') {
+                    self.rules.rules.insert(inst, rule.into());
+                    return Ok(true);
+                }
+            } else if self.token_generator.consume('d') {
+                rule.relative = false;
+                if self.token_generator.skip_whitespaces().consume_operator(',') {
+                    if self.token_generator.skip_whitespaces().consume_operator(';') {
+                        self.rules.rules.insert(inst, rule.into());
+                        return Ok(true);
+                    }
+                } else if self.token_generator.consume_operator(';') {
+                    self.rules.rules.insert(inst, rule.into());
+                    return Ok(true);
+                }
+            } else if self.token_generator.skip_whitespaces().consume_operator(';') {
+                self.rules.rules.insert(inst, rule.into());
+                return Ok(true);
+            }
+            loop {
+                self.token_generator.skip_whitespaces();
+                if self.consume_binary_code(&mut rule.code, &mut offset, default_bit)? {
+                    if self.token_generator.skip_whitespaces().consume_operator(',') {
+                        if self.token_generator.skip_whitespaces().consume_operator(';') {
+                            break;
+                        }
+                        continue;
+                    } else if self.token_generator.consume_operator(';') {
+                        break;
+                    } else {
+                        return Err(ErrorKind::UnexpectedToken {
+                            expected: "\",\" or \";\"".into(),
+                            found: self.token_generator.next_char().ok_or(ErrorKind::UnexpectedEof)??.to_string().into_boxed_str(),
+                        });
+                    }
+                }
+                if let Some(oprcode) = self.consume_special_opecode(&mut rule.code, &mut offset, default_bit)? {
+                    rule.opr_code.extend(oprcode);
+                    if self.token_generator.skip_whitespaces().consume_operator(',') {
+                        if self.token_generator.skip_whitespaces().consume_operator(';') {
+                            break;
+                        }
+                        continue;
+                    } else if self.token_generator.consume_operator(';') {
+                        break;
+                    } else {
+                        return Err(ErrorKind::UnexpectedToken {
+                            expected: "\",\" or \";\"".into(),
+                            found: self.token_generator.next_char().ok_or(ErrorKind::UnexpectedEof)??.to_string().into_boxed_str(),
+                        });
+                    }
+                }
+                let token = self.token_generator.expect_token("".into())?;
+                return Err(ErrorKind::OpeCodeParseError {
+                    found: token.into(),
+                });
+            }
+            self.rules.rules.insert(inst, rule.into());
             Ok(true)
         } else {
             Ok(false)
         }
     }
 
-    /// 空白を読み進めない
-    fn consume_binary_code(&mut self, code: &mut [u8], pos: &mut u16) -> Result<bool, ErrorKind> {
+    fn consume_binary_code(&mut self, code: &mut Vec<u8>, offset: &mut u8, default_bit: u8) -> Result<bool, ErrorKind> {
         let tokens = &mut self.token_generator;
-        match tokens.peek() {
-            Some(Ok('0')) | Some(Ok('1')) => {
-                let s = tokens.consume_identdigit().unwrap_or_else(|| {
-                    panic!("WordGeneratorTrait::expect_word() implementation broken.")
-                });
-                let length = s.len();
-                let Ok(bits) = u64::from_str_radix(s.as_ref(), 2) else {
-                    return Err(ErrorKind::OpeCodeParseError { found: s });
-                };
-                Ok(true)
+        let mut written = false;
+        loop {
+            match tokens.peek().transpose()? {
+                Some('0') => {
+                    tokens.next_char();
+                    if *offset == 8 {
+                        *offset = 0;
+                        code.push(default_bit & 0b0111_1111);
+                    } else if let Some(mr) = code.last_mut() {
+                        *mr &= !(0x80 >> *offset);
+                    }
+                    written = true;
+                }
+                Some('1') => {
+                    tokens.next_char();
+                    if *offset == 8 {
+                        *offset = 0;
+                        code.push(default_bit | 0b1000_0000);
+                    } else if let Some(mr) = code.last_mut() {
+                        *mr |= 0x80 >> *offset;
+                    }
+                    written = true;
+                }
+                _ => break Ok(written),
             }
-            _ => Ok(false),
+            *offset += 1;
+        }
+    }
+
+    /// * `Ok(None)`: Any pattern doesn't match
+    /// * `Ok(Some(None))`: Pattern matched but no oprcode ("fix")
+    /// * `Ok(Some(Some(oprcode)))`: Pattern matched and oprcode ("opr" or "opc")
+    fn consume_special_opecode(&mut self, code: &mut Vec<u8>, offset: &mut u8, default_bit: u8) -> Result<Option<Option<OprCode>>, ErrorKind> {
+        if let Some(s) = self.token_generator.consume_identifier() {
+            match &*s {
+                "opr" => {
+                    self.token_generator.skip_whitespaces().expect_operator_single_of('(')?;
+                    let opr = self.token_generator.skip_whitespaces().expect_number_in_range(1, 256)? as u8;
+                    self.token_generator.skip_whitespaces().expect_operator_single_of(':')?;
+                    let length = self.token_generator.skip_whitespaces().expect_number_in_range(1, 64)? as u8;
+                    let pos: u16 = (code.len() * 8 + *offset as usize - 8).try_into().map_err(|_| ErrorKind::TooLongOpeCode)?;
+                    let additional_bit = (*offset + length) as i8 - 8;
+                    *offset = additional_bit.rem_euclid(8) as u8;
+                    if additional_bit > 0 {
+                        code.extend((0..(additional_bit as u8).div_ceil(8)).map(|_| default_bit));
+                    }
+                    self.token_generator.skip_whitespaces().expect_operator_single_of(')')?;
+                    Ok(Some(Some(OprCode::new(opr, length, pos))))
+                }
+                "opc" => {
+                    unimplemented!("opc(<index>:<length>)")
+                }
+                "fix" => {
+                    unimplemented!("fix(<value>:<length>)");
+                    #[allow(unreachable_code)]
+                    Ok(Some(None))
+                }
+                _ => {
+                    Err(ErrorKind::UnexpectedToken {
+                        expected: "\"opr\", \"opc\" or \"fix\"".into(),
+                        found: s,
+                    })
+                }
+            }
+        } else {
+            Ok(None)
         }
     }
 }
 
 #[cfg(test)]
 mod test {
+    use crate::{lex::char_gen::CharGenerator, parser::assembly::Table};
+
     use super::*;
+
+    #[test]
+    fn define_instruction_code_test() {
+        let s: &[u8] = b"LD		  10100000,000,opr(1:3),00,opr(2:16);";
+        let mut parser = Parser::new(CharGenerator::new(s).into_word_generator());
+        assert!(parser.consume_rule_definition().unwrap());
+        println!("{:#?}", parser.rules);
+    }
+
+    #[test]
+    fn use_tables_test() {
+        let s: &[u8] = b"*use_tables 1,3";
+        let mut parser = Parser::new(CharGenerator::new(s).into_word_generator());
+        parser.tables.add_table(
+            "1".into(),
+            Table::new(),
+        ).unwrap();
+        parser.tables.add_table(
+            "2".into(),
+            Table::new(),
+        ).unwrap();
+        parser.tables.add_table(
+            "3".into(),
+            Table::new(),
+        ).unwrap();
+        assert!(parser.consume_use_tables().unwrap());
+        let mut key = TableKey::from_indice(&[0,2]);
+        key.enable_immediate();
+        assert_eq!(parser.default_tables, Some(key));
+    }
+
+    #[test]
+    fn general_definition_test() {
+        let s: &[u8] = b"
+        *address_size 14
+        *word_size 7
+        *address_mode 2
+        *empty_symbol_mode 0";
+        let mut parser = Parser::new(CharGenerator::new(s).into_word_generator());
+        assert!(parser.skip_whitespaces().configulation().unwrap());
+        assert!(parser.skip_whitespaces().configulation().unwrap());
+        assert!(parser.skip_whitespaces().configulation().unwrap());
+        assert!(parser.skip_whitespaces().configulation().unwrap());
+        assert_eq!(parser.general_rules, GeneralRuleConfig {
+            address_size: Some(14),
+            word_size: Some(7),
+            immediate_size: None,
+            address_mode: Some(2),
+            empty_symbol_mode: Some(0),
+        });
+    }
+
+    #[test]
+    fn compile_test() {
+        let s: &[u8] = b"
+        *address_size 14
+        *word_size 7
+        *address_mode 2
+        *empty_symbol_mode 0
+        #rule_definition
+        LD 0000000,0000000;";
+        let mut parser = Parser::new(CharGenerator::new(s).into_word_generator());
+        if let Err(e) = parser.compile() {
+            println!("{e}");
+        } else {
+            println!("{:#?}", parser.general_rules);
+            println!("{:#?}", parser.rules);
+        }
+    }
 }
