@@ -13,7 +13,8 @@ use crate::{
 
 use super::{
     assembly::{
-        table_key, GeneralRuleConfig, OprCode, RuleConfig, RulesConfig, SyntaxRuleConfig, TableKey, TablesConfig
+        table_key, GeneralRuleConfig, OperandRule, OprCode, RuleConfig, Rules, RulesConfig,
+        SyntaxRuleConfig, TableKey, TablesConfig,
     },
     Error, ErrorKind,
 };
@@ -102,6 +103,16 @@ pub(super) trait TokenGeneratorTraitExt: TokenGeneratorTrait {
         }
     }
 
+    fn expect_number_as_radix(&mut self, radix: u32) -> Result<i64, ErrorKind> {
+        match self.consume_number_as_radix(radix) {
+            Some(n) => Ok(n?),
+            None => Err(ErrorKind::unexpected_token(
+                "NUMBER".into(),
+                self.next_token().ok_or(ErrorKind::UnexpectedEof)??,
+            )),
+        }
+    }
+
     fn expect_number_in_range(&mut self, min: i64, max: i64) -> Result<i64, ErrorKind> {
         let n = self.expect_number()?;
         if n < min as _ || n > max as _ {
@@ -146,7 +157,14 @@ pub(super) trait TokenGeneratorTraitExt: TokenGeneratorTrait {
         if self.consume_operator(op) {
             Ok(())
         } else {
-            Err(ErrorKind::UnexpectedToken { expected: op.to_string().into_boxed_str(), found: self.next_char().ok_or(ErrorKind::UnexpectedEof)??.to_string().into_boxed_str() })
+            Err(ErrorKind::UnexpectedToken {
+                expected: op.to_string().into_boxed_str(),
+                found: self
+                    .next_char()
+                    .ok_or(ErrorKind::UnexpectedEof)??
+                    .to_string()
+                    .into_boxed_str(),
+            })
         }
     }
 }
@@ -195,8 +213,18 @@ impl<T: TokenGeneratorTrait> Parser<T> {
     //     Ok(())
     // }
 
-    pub fn compile(&mut self) -> Result<(), Error> {
-        self.pgrm().map_err(|e| self.token_generator.gen_error(e))
+    pub fn compile(mut self) -> Result<Rules, Error> {
+        self.pgrm().map_err(|e| self.token_generator.gen_error(e))?;
+        Ok(self.into_rule())
+    }
+
+    fn into_rule(self) -> Rules {
+        Rules {
+            rules: self.rules.into(),
+            general: self.general_rules.into(),
+            syntax: self.syntax_rule.into(),
+            tables: self.tables.into(),
+        }
     }
 
     pub fn skip_whitespaces(&mut self) -> &mut Self {
@@ -254,7 +282,8 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                 let mut max_bits = 1;
                 while let Some((name, val)) = self.skip_whitespaces().stmt_define_table()? {
                     tmp.push((name, val));
-                    max_bits = max_bits.max(val.checked_ilog2().unwrap_or_default() as u8);
+                    max_bits =
+                        max_bits.max(val.checked_ilog2().map(|a| a as u8 + 1).unwrap_or_default());
                 }
                 self.tables.add_table(
                     name,
@@ -287,7 +316,9 @@ impl<T: TokenGeneratorTrait> Parser<T> {
         if let Some(name) = self.token_generator.consume_identdigit() {
             Ok(Some((
                 name,
-                self.token_generator.skip_whitespaces().expect_number()?,
+                self.token_generator
+                    .skip_whitespaces()
+                    .expect_number_as_radix(2)?,
             )))
         } else {
             Ok(None)
@@ -331,12 +362,23 @@ impl<T: TokenGeneratorTrait> Parser<T> {
         if let Some(inst) = tokens.consume_identifier() {
             let mut offset = 8;
             let mut rule = RuleConfig::new();
-            let default_bit = self.general_rules.empty_symbol_mode.map_or(0, |a| 0u8.wrapping_sub(a & 1));
-            // TODO `RuleConfig::operands`の変更処理
+            let default_bit = self
+                .general_rules
+                .empty_symbol_mode
+                .map_or(0, |a| 0u8.wrapping_sub(a & 1));
+
             if self.token_generator.skip_whitespaces().consume('s') {
                 rule.relative = true;
-                if self.token_generator.skip_whitespaces().consume_operator(',') {
-                    if self.token_generator.skip_whitespaces().consume_operator(';') {
+                if self
+                    .token_generator
+                    .skip_whitespaces()
+                    .consume_operator(',')
+                {
+                    if self
+                        .token_generator
+                        .skip_whitespaces()
+                        .consume_operator(';')
+                    {
                         self.rules.rules.insert(inst, rule.into());
                         return Ok(true);
                     }
@@ -346,8 +388,16 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                 }
             } else if self.token_generator.consume('d') {
                 rule.relative = false;
-                if self.token_generator.skip_whitespaces().consume_operator(',') {
-                    if self.token_generator.skip_whitespaces().consume_operator(';') {
+                if self
+                    .token_generator
+                    .skip_whitespaces()
+                    .consume_operator(',')
+                {
+                    if self
+                        .token_generator
+                        .skip_whitespaces()
+                        .consume_operator(';')
+                    {
                         self.rules.rules.insert(inst, rule.into());
                         return Ok(true);
                     }
@@ -355,15 +405,27 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                     self.rules.rules.insert(inst, rule.into());
                     return Ok(true);
                 }
-            } else if self.token_generator.skip_whitespaces().consume_operator(';') {
+            } else if self
+                .token_generator
+                .skip_whitespaces()
+                .consume_operator(';')
+            {
                 self.rules.rules.insert(inst, rule.into());
                 return Ok(true);
             }
             loop {
                 self.token_generator.skip_whitespaces();
                 if self.consume_binary_code(&mut rule.code, &mut offset, default_bit)? {
-                    if self.token_generator.skip_whitespaces().consume_operator(',') {
-                        if self.token_generator.skip_whitespaces().consume_operator(';') {
+                    if self
+                        .token_generator
+                        .skip_whitespaces()
+                        .consume_operator(',')
+                    {
+                        if self
+                            .token_generator
+                            .skip_whitespaces()
+                            .consume_operator(';')
+                        {
                             break;
                         }
                         continue;
@@ -372,14 +434,44 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                     } else {
                         return Err(ErrorKind::UnexpectedToken {
                             expected: "\",\" or \";\"".into(),
-                            found: self.token_generator.next_char().ok_or(ErrorKind::UnexpectedEof)??.to_string().into_boxed_str(),
+                            found: self
+                                .token_generator
+                                .next_char()
+                                .ok_or(ErrorKind::UnexpectedEof)??
+                                .to_string()
+                                .into_boxed_str(),
                         });
                     }
                 }
-                if let Some(oprcode) = self.consume_special_opecode(&mut rule.code, &mut offset, default_bit)? {
-                    rule.opr_code.extend(oprcode);
-                    if self.token_generator.skip_whitespaces().consume_operator(',') {
-                        if self.token_generator.skip_whitespaces().consume_operator(';') {
+                if let Some(oprcode) =
+                    self.consume_special_opecode(&mut rule.code, &mut offset, default_bit)?
+                {
+                    if let Some(oprcode) = oprcode {
+                        let new_len = rule.operands.len().max(oprcode.ind() as usize + 1);
+                        rule.operands.resize_with(new_len, || {
+                            OperandRule::Register(self.tables.all_indice())
+                        });
+                        if let Some(opr_rule) = rule.operands.get_mut(oprcode.ind() as usize) {
+                            *opr_rule = if let Some(key) = self.default_tables {
+                                OperandRule::Register(key)
+                            } else {
+                                OperandRule::Address
+                            }
+                        } else {
+                            unreachable!()
+                        }
+                        rule.opr_code.push(oprcode);
+                    }
+                    if self
+                        .token_generator
+                        .skip_whitespaces()
+                        .consume_operator(',')
+                    {
+                        if self
+                            .token_generator
+                            .skip_whitespaces()
+                            .consume_operator(';')
+                        {
                             break;
                         }
                         continue;
@@ -388,7 +480,12 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                     } else {
                         return Err(ErrorKind::UnexpectedToken {
                             expected: "\",\" or \";\"".into(),
-                            found: self.token_generator.next_char().ok_or(ErrorKind::UnexpectedEof)??.to_string().into_boxed_str(),
+                            found: self
+                                .token_generator
+                                .next_char()
+                                .ok_or(ErrorKind::UnexpectedEof)??
+                                .to_string()
+                                .into_boxed_str(),
                         });
                     }
                 }
@@ -404,7 +501,12 @@ impl<T: TokenGeneratorTrait> Parser<T> {
         }
     }
 
-    fn consume_binary_code(&mut self, code: &mut Vec<u8>, offset: &mut u8, default_bit: u8) -> Result<bool, ErrorKind> {
+    fn consume_binary_code(
+        &mut self,
+        code: &mut Vec<u8>,
+        offset: &mut u8,
+        default_bit: u8,
+    ) -> Result<bool, ErrorKind> {
         let tokens = &mut self.token_generator;
         let mut written = false;
         loop {
@@ -438,21 +540,41 @@ impl<T: TokenGeneratorTrait> Parser<T> {
     /// * `Ok(None)`: Any pattern doesn't match
     /// * `Ok(Some(None))`: Pattern matched but no oprcode ("fix")
     /// * `Ok(Some(Some(oprcode)))`: Pattern matched and oprcode ("opr" or "opc")
-    fn consume_special_opecode(&mut self, code: &mut Vec<u8>, offset: &mut u8, default_bit: u8) -> Result<Option<Option<OprCode>>, ErrorKind> {
+    fn consume_special_opecode(
+        &mut self,
+        code: &mut Vec<u8>,
+        offset: &mut u8,
+        default_bit: u8,
+    ) -> Result<Option<Option<OprCode>>, ErrorKind> {
         if let Some(s) = self.token_generator.consume_identifier() {
             match &*s {
                 "opr" => {
-                    self.token_generator.skip_whitespaces().expect_operator_single_of('(')?;
-                    let opr = self.token_generator.skip_whitespaces().expect_number_in_range(1, 256)? as u8;
-                    self.token_generator.skip_whitespaces().expect_operator_single_of(':')?;
-                    let length = self.token_generator.skip_whitespaces().expect_number_in_range(1, 64)? as u8;
-                    let pos: u16 = (code.len() * 8 + *offset as usize - 8).try_into().map_err(|_| ErrorKind::TooLongOpeCode)?;
+                    self.token_generator
+                        .skip_whitespaces()
+                        .expect_operator_single_of('(')?;
+                    let opr = (self
+                        .token_generator
+                        .skip_whitespaces()
+                        .expect_number_in_range(1, 256)?
+                        - 1) as u8;
+                    self.token_generator
+                        .skip_whitespaces()
+                        .expect_operator_single_of(':')?;
+                    let length = self
+                        .token_generator
+                        .skip_whitespaces()
+                        .expect_number_in_range(1, 64)? as u8;
+                    let pos: u16 = (code.len() * 8 + *offset as usize - 8)
+                        .try_into()
+                        .map_err(|_| ErrorKind::TooLongOpeCode)?;
                     let additional_bit = (*offset + length) as i8 - 8;
                     *offset = additional_bit.rem_euclid(8) as u8;
                     if additional_bit > 0 {
                         code.extend((0..(additional_bit as u8).div_ceil(8)).map(|_| default_bit));
                     }
-                    self.token_generator.skip_whitespaces().expect_operator_single_of(')')?;
+                    self.token_generator
+                        .skip_whitespaces()
+                        .expect_operator_single_of(')')?;
                     Ok(Some(Some(OprCode::new(opr, length, pos))))
                 }
                 "opc" => {
@@ -463,12 +585,10 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                     #[allow(unreachable_code)]
                     Ok(Some(None))
                 }
-                _ => {
-                    Err(ErrorKind::UnexpectedToken {
-                        expected: "\"opr\", \"opc\" or \"fix\"".into(),
-                        found: s,
-                    })
-                }
+                _ => Err(ErrorKind::UnexpectedToken {
+                    expected: "\"opr\", \"opc\" or \"fix\"".into(),
+                    found: s,
+                }),
             }
         } else {
             Ok(None)
@@ -494,20 +614,11 @@ mod test {
     fn use_tables_test() {
         let s: &[u8] = b"*use_tables 1,3";
         let mut parser = Parser::new(CharGenerator::new(s).into_word_generator());
-        parser.tables.add_table(
-            "1".into(),
-            Table::new(),
-        ).unwrap();
-        parser.tables.add_table(
-            "2".into(),
-            Table::new(),
-        ).unwrap();
-        parser.tables.add_table(
-            "3".into(),
-            Table::new(),
-        ).unwrap();
+        parser.tables.add_table("1".into(), Table::new()).unwrap();
+        parser.tables.add_table("2".into(), Table::new()).unwrap();
+        parser.tables.add_table("3".into(), Table::new()).unwrap();
         assert!(parser.consume_use_tables().unwrap());
-        let mut key = TableKey::from_indice(&[0,2]);
+        let mut key = TableKey::from_indice(&[0, 2]);
         key.enable_immediate();
         assert_eq!(parser.default_tables, Some(key));
     }
@@ -524,30 +635,43 @@ mod test {
         assert!(parser.skip_whitespaces().configulation().unwrap());
         assert!(parser.skip_whitespaces().configulation().unwrap());
         assert!(parser.skip_whitespaces().configulation().unwrap());
-        assert_eq!(parser.general_rules, GeneralRuleConfig {
-            address_size: Some(14),
-            word_size: Some(7),
-            immediate_size: None,
-            address_mode: Some(2),
-            empty_symbol_mode: Some(0),
-        });
+        assert_eq!(
+            parser.general_rules,
+            GeneralRuleConfig {
+                address_size: Some(14),
+                word_size: Some(7),
+                immediate_size: None,
+                address_mode: Some(2),
+                empty_symbol_mode: Some(0),
+            }
+        );
     }
 
     #[test]
     fn compile_test() {
         let s: &[u8] = b"
-        *address_size 14
-        *word_size 7
+        *address_size 16
+        *word_size 8
         *address_mode 2
         *empty_symbol_mode 0
+        *table 	0
+            R0	000
+            R1	001
+            R2	010
+            R3 	011
+            R4	100
+            R5	101
+        *table  1
+            X0  00
+            X1  01
+            X2  10
         #rule_definition
-        LD 0000000,0000000;";
-        let mut parser = Parser::new(CharGenerator::new(s).into_word_generator());
-        if let Err(e) = parser.compile() {
-            println!("{e}");
-        } else {
-            println!("{:#?}", parser.general_rules);
-            println!("{:#?}", parser.rules);
+        *use_tables 0,1
+        LD		10100000,000,opr(1:3),00,opr(2:16);";
+        let parser = Parser::new(CharGenerator::new(s).into_word_generator());
+        match parser.compile() {
+            Ok(rule) => println!("{:#?}", rule),
+            Err(e) => println!("{e}"),
         }
     }
 }

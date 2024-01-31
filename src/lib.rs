@@ -2,7 +2,7 @@ pub mod lex;
 pub mod parser;
 
 // private module
-#[cfg(test)]
+#[allow(dead_code)]
 mod bit_slice {
 
     #[derive(Default)]

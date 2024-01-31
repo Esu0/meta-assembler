@@ -2,7 +2,8 @@
 
 pub mod parser;
 
-use std::{collections::HashMap, num::NonZeroU64, ops::{self, BitOrAssign}};
+use std::{collections::HashMap, fmt, num::NonZeroU64, ops};
+
 /// アセンブリのコード生成ルール全体を表す。
 /// ニーモニック一つにルール一つが対応するようになっている。
 /// # 注意
@@ -14,8 +15,10 @@ use std::{collections::HashMap, num::NonZeroU64, ops::{self, BitOrAssign}};
 /// * テーブルによる指定が不可能である
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Rules {
-    rules: HashMap<Box<str>, Rule>,
-    general: GeneralRule,
+    pub(super) rules: HashMap<Box<str>, Rule>,
+    pub(super) general: GeneralRule,
+    pub(super) syntax: SyntaxRule,
+    pub(super) tables: Tables,
 }
 
 #[derive(Debug)]
@@ -38,7 +41,13 @@ impl From<ConfigError> for super::ErrorKind {
 /// クレートの外部で[`Rules`]を構築するための構造体
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RulesConfig {
-    pub rules: HashMap<Box<str>, Rule>,
+    pub(super) rules: HashMap<Box<str>, Rule>,
+}
+
+impl From<RulesConfig> for HashMap<Box<str>, Rule> {
+    fn from(value: RulesConfig) -> Self {
+        value.rules
+    }
 }
 
 impl RulesConfig {
@@ -199,7 +208,7 @@ impl GeneralRuleConfig {
 
 /// 一般的な規則の定義
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct GeneralRule {
+pub(super) struct GeneralRule {
     /// 1ワードのビット数
     word_size: u8,
     /// アドレスのワード数
@@ -303,7 +312,7 @@ impl SyntaxRuleConfig {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct SyntaxRule {
+pub(super) struct SyntaxRule {
     org: Box<str>,
     end: Box<str>,
     equ: Option<Box<str>>,
@@ -410,6 +419,10 @@ impl OprCode {
             length,
             position,
         }
+    }
+
+    pub fn ind(&self) -> u8 {
+        self.opr
     }
 }
 
@@ -520,14 +533,24 @@ impl Iterator for TableKeyIndice {
 }
 
 const MAX_TABLE_BIT_LENGTH_BYTE: usize = 8;
+#[allow(clippy::assertions_on_constants)]
 const _: () = assert!(MAX_TABLE_BIT_LENGTH_BYTE <= 16);
 
 /// テーブルによって指定されるビット列を表す構造体
 ///
 /// この構造体の参照は`&[u8]`として扱える
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TableBits([u8; MAX_TABLE_BIT_LENGTH_BYTE]);
 
+impl fmt::Debug for TableBits {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "TableBits({:?})",
+            crate::bit_slice::slice_bit::<crate::bit_slice::Bin>(&self.0)
+        )
+    }
+}
 impl TableBits {
     pub fn from_num(n: u128, length: u8) -> Self {
         assert!(
@@ -550,9 +573,21 @@ impl ops::Deref for TableBits {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Tables {
     tbls: Box<[Table]>,
+}
+
+impl Tables {
+    pub fn all_indice(&self) -> TableKey {
+        let len = self.tbls.len();
+        if len >= 64 {
+            panic!("too many tables");
+        }
+        TableKey {
+            index: unsafe { NonZeroU64::new_unchecked(!(0xffffffffffffffff >> (63 - len))) },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -596,6 +631,25 @@ impl From<HashMap<Box<str>, TableBits>> for Table {
 pub struct TablesConfig {
     tbls: Vec<Table>,
     names: HashMap<Box<str>, usize>,
+}
+
+impl From<TablesConfig> for Tables {
+    fn from(value: TablesConfig) -> Self {
+        Self {
+            tbls: value.tbls.into_boxed_slice(),
+        }
+    }
+}
+impl TablesConfig {
+    pub fn all_indice(&self) -> TableKey {
+        let len = self.tbls.len();
+        if len >= 64 {
+            panic!("too many tables");
+        }
+        TableKey {
+            index: unsafe { NonZeroU64::new_unchecked(!(0xffffffffffffffff >> (63 - len))) },
+        }
+    }
 }
 
 impl TablesConfig {

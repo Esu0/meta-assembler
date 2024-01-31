@@ -160,6 +160,20 @@ pub trait TokenGeneratorTrait: WordGeneratorTrait {
         self.consume(op)
     }
 
+    /// 直後に来る数字を指定した進数で読み取る
+    ///
+    /// 数字が来ない場合は何もせず`None`を返す
+    ///
+    /// パース不可能な文字列を読み取った場合は`ParseIntError`を返す。
+    #[inline]
+    fn consume_number_as_radix(&mut self, radix: u32) -> Option<Result<i64, Error>> {
+        match self.predict()?.transpose()? {
+            Ok(TokenKind::Integer) => Some(self.parse_next_number_as(radix)),
+            Err(_) => Some(Err(Error::encode_error())),
+            _ => None,
+        }
+    }
+
     /// 正確に次のトークンを予測するために空白文字は読み進められる
     #[inline]
     fn next_token_kind(&mut self) -> Option<Result<TokenKind, EncodeError>> {
@@ -210,7 +224,7 @@ trait TokenGeneratorPrivate: TokenGeneratorTrait {
                 8
             } else if self.consume_with(|c| matches!(c, 'b' | 'B')) {
                 2
-            } else if self.consume_with(|c| c.is_ascii_digit()) {
+            } else if self.predict() == Some(Ok(Some(TokenKind::Integer))) {
                 10
             } else if matches!(self.next_word_kind(), Some(Ok(WordKind::IdentDigit))) {
                 let Some(Ok(c)) = self.next_char() else {
