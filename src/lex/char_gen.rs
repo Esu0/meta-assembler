@@ -191,6 +191,12 @@ pub trait CharGeneratorTrait {
         }
         false
     }
+
+    /// `c`と一致する文字が見つかるまで文字をスキップし、`c`と一致する文字自体も読み進める。
+    fn skip_until(&mut self, c: char) {
+        self.skip_while(|current| current.map_or(true, |current| current != c));
+        debug_assert!(self.next_char().map_or(true, |c2| c2 == Ok(c)));
+    }
 }
 
 /// エンコードできない文字およびそのエラー型を表す構造体

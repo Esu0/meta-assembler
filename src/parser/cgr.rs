@@ -167,6 +167,17 @@ pub(super) trait TokenGeneratorTraitExt: TokenGeneratorTrait {
             })
         }
     }
+
+    fn skip_comment(&mut self) -> &mut Self {
+        while self.skip_whitespaces().consume_operator(';') {
+            self.skip_while(|c| c != Ok('\n'));
+            debug_assert!(
+                matches!(self.next_char(), Some(Ok('\n')) | None),
+                "CharGenerator implementation might be broken."
+            );
+        }
+        self
+    }
 }
 
 impl<T: TokenGeneratorTrait> TokenGeneratorTraitExt for T {}
@@ -227,18 +238,19 @@ impl<T: TokenGeneratorTrait> Parser<T> {
         }
     }
 
-    pub fn skip_whitespaces(&mut self) -> &mut Self {
-        self.token_generator.skip_whitespaces();
+    // pub fn skip_whitespaces(&mut self) -> &mut Self {
+    //     self.token_generator.skip_whitespaces();
+    //     self
+    // }
+
+    pub fn skip_comment(&mut self) -> &mut Self {
+        self.token_generator.skip_comment();
         self
     }
 
     fn pgrm(&mut self) -> Result<(), ErrorKind> {
         loop {
-            if self
-                .token_generator
-                .skip_whitespaces()
-                .consume_operator('#')
-            {
+            if self.token_generator.skip_comment().consume_operator('#') {
                 let i = self.token_generator.expect_identifier()?;
                 match &*i {
                     "general_definition" | "table_definition" | "end" => {}
@@ -265,7 +277,7 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                 .expect_ident_with("word_size, address_size, etc...".into())?;
             let s_str = s.as_ref();
 
-            self.skip_whitespaces();
+            self.token_generator.skip_comment();
             if self
                 .general_rules
                 .set_by_token_generator(s_str, &mut self.token_generator)?
@@ -280,7 +292,7 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                 let name = self.token_generator.expect_number_or_identifier()?;
                 let mut tmp = Vec::new();
                 let mut max_bits = 1;
-                while let Some((name, val)) = self.skip_whitespaces().stmt_define_table()? {
+                while let Some((name, val)) = self.skip_comment().stmt_define_table()? {
                     tmp.push((name, val));
                     max_bits =
                         max_bits.max(val.checked_ilog2().map(|a| a as u8 + 1).unwrap_or_default());
@@ -317,7 +329,7 @@ impl<T: TokenGeneratorTrait> Parser<T> {
             Ok(Some((
                 name,
                 self.token_generator
-                    .skip_whitespaces()
+                    .skip_comment()
                     .expect_number_as_radix(2)?,
             )))
         } else {
@@ -327,10 +339,10 @@ impl<T: TokenGeneratorTrait> Parser<T> {
 
     fn rule_definitions(&mut self) -> Result<(), ErrorKind> {
         loop {
-            if self.skip_whitespaces().consume_use_tables()? {
+            if self.skip_comment().consume_use_tables()? {
                 continue;
             }
-            if self.skip_whitespaces().consume_rule_definition()? {
+            if self.skip_comment().consume_rule_definition()? {
                 continue;
             }
             break Ok(());
@@ -340,14 +352,22 @@ impl<T: TokenGeneratorTrait> Parser<T> {
     fn consume_use_tables(&mut self) -> Result<bool, ErrorKind> {
         let tokens = &mut self.token_generator;
         if tokens.consume_operator('*') {
-            tokens.expect_ident_of("use_tables")?;
+            match tokens.expect_identifier()? {
+                kw if &*kw == "use_tables" || &*kw == "use_table" => {}
+                found => {
+                    return Err(ErrorKind::UnexpectedToken {
+                        expected: "".into(),
+                        found,
+                    })
+                }
+            }
             self.default_tables = None;
-            while let Some(name) = tokens.skip_whitespaces().consume_identdigit() {
+            while let Some(name) = tokens.skip_comment().consume_identdigit() {
                 let Some(i) = self.tables.get_index(&name) else {
                     return Err(ErrorKind::TableNotFound { found: name });
                 };
                 table_key::add_index(&mut self.default_tables, i);
-                if !tokens.skip_whitespaces().consume_operator(',') {
+                if !tokens.skip_comment().consume_operator(',') {
                     break;
                 }
             }
@@ -379,10 +399,12 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                         .skip_whitespaces()
                         .consume_operator(';')
                     {
+                        self.token_generator.skip_until('\n');
                         self.rules.rules.insert(inst, rule.into());
                         return Ok(true);
                     }
                 } else if self.token_generator.consume_operator(';') {
+                    self.token_generator.skip_until('\n');
                     self.rules.rules.insert(inst, rule.into());
                     return Ok(true);
                 }
@@ -398,10 +420,12 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                         .skip_whitespaces()
                         .consume_operator(';')
                     {
+                        self.token_generator.skip_until('\n');
                         self.rules.rules.insert(inst, rule.into());
                         return Ok(true);
                     }
                 } else if self.token_generator.consume_operator(';') {
+                    self.token_generator.skip_until('\n');
                     self.rules.rules.insert(inst, rule.into());
                     return Ok(true);
                 }
@@ -410,6 +434,7 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                 .skip_whitespaces()
                 .consume_operator(';')
             {
+                self.token_generator.skip_until('\n');
                 self.rules.rules.insert(inst, rule.into());
                 return Ok(true);
             }
@@ -426,10 +451,12 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                             .skip_whitespaces()
                             .consume_operator(';')
                         {
+                            self.token_generator.skip_until('\n');
                             break;
                         }
                         continue;
                     } else if self.token_generator.consume_operator(';') {
+                        self.token_generator.skip_until('\n');
                         break;
                     } else {
                         return Err(ErrorKind::UnexpectedToken {
@@ -472,10 +499,12 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                             .skip_whitespaces()
                             .consume_operator(';')
                         {
+                            self.token_generator.skip_until('\n');
                             break;
                         }
                         continue;
                     } else if self.token_generator.consume_operator(';') {
+                        self.token_generator.skip_until('\n');
                         break;
                     } else {
                         return Err(ErrorKind::UnexpectedToken {
@@ -550,19 +579,19 @@ impl<T: TokenGeneratorTrait> Parser<T> {
             match &*s {
                 "opr" => {
                     self.token_generator
-                        .skip_whitespaces()
+                        .skip_comment()
                         .expect_operator_single_of('(')?;
                     let opr = (self
                         .token_generator
-                        .skip_whitespaces()
+                        .skip_comment()
                         .expect_number_in_range(1, 256)?
                         - 1) as u8;
                     self.token_generator
-                        .skip_whitespaces()
+                        .skip_comment()
                         .expect_operator_single_of(':')?;
                     let length = self
                         .token_generator
-                        .skip_whitespaces()
+                        .skip_comment()
                         .expect_number_in_range(1, 64)? as u8;
                     let pos: u16 = (code.len() * 8 + *offset as usize - 8)
                         .try_into()
@@ -573,7 +602,7 @@ impl<T: TokenGeneratorTrait> Parser<T> {
                         code.extend((0..(additional_bit as u8).div_ceil(8)).map(|_| default_bit));
                     }
                     self.token_generator
-                        .skip_whitespaces()
+                        .skip_comment()
                         .expect_operator_single_of(')')?;
                     Ok(Some(Some(OprCode::new(opr, length, pos))))
                 }
@@ -625,16 +654,19 @@ mod test {
 
     #[test]
     fn general_definition_test() {
-        let s: &[u8] = b"
-        *address_size 14
-        *word_size 7
-        *address_mode 2
-        *empty_symbol_mode 0";
+        let s = "
+        *address_size ; アドレスサイズ
+        14 ; 2byte
+        *word_size ; バイトサイズ
+        7 ; 7bit
+        *address_mode 2 ; リトルエンディアン
+        *empty_symbol_mode 0 ; オペランド省略時0埋め"
+            .as_bytes();
         let mut parser = Parser::new(CharGenerator::new(s).into_word_generator());
-        assert!(parser.skip_whitespaces().configulation().unwrap());
-        assert!(parser.skip_whitespaces().configulation().unwrap());
-        assert!(parser.skip_whitespaces().configulation().unwrap());
-        assert!(parser.skip_whitespaces().configulation().unwrap());
+        assert!(parser.skip_comment().configulation().unwrap());
+        assert!(parser.skip_comment().configulation().unwrap());
+        assert!(parser.skip_comment().configulation().unwrap());
+        assert!(parser.skip_comment().configulation().unwrap());
         assert_eq!(
             parser.general_rules,
             GeneralRuleConfig {
@@ -649,25 +681,28 @@ mod test {
 
     #[test]
     fn compile_test() {
-        let s: &[u8] = b"
+        let s = "
         *address_size 16
         *word_size 8
         *address_mode 2
         *empty_symbol_mode 0
-        *table 	0
+        *table 	0 ; 汎用レジスタ
             R0	000
             R1	001
             R2	010
             R3 	011
             R4	100
             R5	101
-        *table  1
+        *table  1 ; インデックスレジスタ
             X0  00
             X1  01
             X2  10
         #rule_definition
-        *use_tables 0,1
-        LD		10100000,000,opr(1:3),00,opr(2:16);";
+        *use_tables ; *use_tableでも可
+        0,
+        1
+        LD		10100000,000,opr(1:3),00,opr(2:16);"
+            .as_bytes();
         let parser = Parser::new(CharGenerator::new(s).into_word_generator());
         match parser.compile() {
             Ok(rule) => println!("{:#?}", rule),
