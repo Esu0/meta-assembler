@@ -4,9 +4,29 @@ use super::char_gen::{CharGeneratorTrait, EncodeError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Word {
-    Word(Box<str>),
+    IdentDigit(Box<str>),
     Separator(char),
     NewLine,
+    Spaces,
+}
+
+impl Word {
+    pub fn kind(&self) -> WordKind {
+        match self {
+            Self::IdentDigit(_) => WordKind::IdentDigit,
+            Self::Separator(_) => WordKind::Separator,
+            Self::NewLine => WordKind::NewLine,
+            Self::Spaces => WordKind::Spaces,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum WordKind {
+    IdentDigit,
+    Separator,
+    NewLine,
+    Spaces,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -108,85 +128,160 @@ impl<C: CharGeneratorTrait> WordGenerator<C> {
 }
 
 impl<C: CharGeneratorTrait> WordGeneratorTrait for WordGenerator<C> {
+    #[inline]
     fn is_separator(&self, c: char) -> bool {
         self.separators.is_separator(c)
     }
 }
 
 impl<C: CharGeneratorTrait> CharGeneratorTrait for WordGenerator<C> {
+    #[inline]
     fn next_char(&mut self) -> Option<Result<char, EncodeError>> {
         self.char_gen.next_char()
     }
 
-    fn peek(&mut self) -> Option<Result<char, EncodeError>> {
+    #[inline]
+    fn peek(&self) -> Option<Result<char, EncodeError>> {
         self.char_gen.peek()
     }
 
+    #[inline]
     fn reader_position(&self) -> (usize, usize) {
         self.char_gen.reader_position()
     }
 }
 
+pub(super) fn error_next_word_kind() -> ! {
+    report_broken_impl(&["next_word_kind"])
+}
+
+pub(super) fn report_broken_impl(methods: &[&'static str]) -> ! {
+    panic!(
+        "WordGeneratorTrait implementation broken:
+        consider checking `{}` method",
+        methods.join("`, `")
+    );
+}
 /// 単語生成器の機能を分離したトレイト
-/// 
+///
 /// 基本的に空白文字は無視されるが、必要以上に空白文字をスキップしない。
 pub trait WordGeneratorTrait: CharGeneratorTrait {
     /// 区切り文字であるかどうかを判定する。
     fn is_separator(&self, c: char) -> bool;
 
-    /// 改行以外の空白文字を無視し、`Word`単位に分割して読み進める。
-    /// `Word`は、改行、区切り文字、単語の3種類がある。
-    /// 
-    /// `Word`を読んだ後に現れる空白文字はスキップされない。
-    fn next_word(&mut self) -> Option<Result<Word, EncodeError>> {
-        self.skip_spaces();
-        self.next_char().map(|x| match x {
-            Ok('\n') => Ok(Word::NewLine),
-            Ok(c) if self.is_separator(c) => Ok(Word::Separator(c)),
-            Ok(c) => Ok(Word::Word(
-                std::iter::once(c)
-                    .chain(self.take_while_with_self(|this, c| {
-                        !(this.is_separator(c) || c.is_ascii_whitespace())
-                    }))
-                    .collect::<String>()
-                    .into_boxed_str(),
-            )),
-            Err(_) => Err(EncodeError),
+    #[inline]
+    fn next_word_kind(&self) -> Option<Result<WordKind, EncodeError>> {
+        self.peek().map(|c| {
+            c.map(|c| match c {
+                '\n' => WordKind::NewLine,
+                c if c.is_ascii_whitespace() => WordKind::Spaces,
+                c if self.is_separator(c) => WordKind::Separator,
+                _ => WordKind::IdentDigit,
+            })
         })
     }
 
+    /// `Word`は、改行、空白、区切り文字、単語の3種類がある。
+    ///
+    /// 連続する空白文字は一つの`Word::Spaces`として扱われる。
+    #[inline]
+    fn next_word(&mut self) -> Option<Result<Word, EncodeError>> {
+        match self.next_word_kind()? {
+            Ok(WordKind::NewLine) => {
+                self.next_char();
+                Some(Ok(Word::NewLine))
+            }
+            Ok(WordKind::Spaces) => {
+                self.skip_spaces();
+                Some(Ok(Word::Spaces))
+            }
+            Ok(WordKind::Separator) => self.next_char().map(|c| c.map(Word::Separator)),
+            Ok(WordKind::IdentDigit) => Some(Ok(Word::IdentDigit(self.get_identdigit_or_panic()))),
+            Err(_) => {
+                self.next_char();
+                Some(Err(EncodeError))
+            }
+        }
+    }
+
     /// `Result<Word, EncodeError>`のイテレータを返す。
-    /// 
+    ///
     /// このイテレータが`None`を返すことはEOFを意味する。
+    #[inline]
     fn words(&mut self) -> Words<Self> {
         Words { word_gen: self }
     }
 
-    /// `WordGeneratorTrait::next_word`が返す``Word`が`Word::Word(_)`なら、その文字列を返す。
-    /// `Word::Word(_)`でない場合は`Err(_)`として`WordGeneratorTrait::next_word`の結果を返す。
-    fn expect_word(&mut self) -> Result<Box<str>, Option<Result<Word, EncodeError>>> {
-        match self.next_word() {
-            Some(Ok(Word::Word(w))) => Ok(w),
-            w => Err(w),
+    /// 次に単語が来る場合は、その単語を返し、そうでない場合は読み進めずに`None`を返す。
+    ///
+    /// 直後に空白文字が来た場合も`None`を返す。
+    #[inline]
+    fn consume_identdigit(&mut self) -> Option<Box<str>> {
+        if let Some(Ok(WordKind::IdentDigit)) = self.next_word_kind() {
+            Some(self.get_identdigit_or_panic())
+        } else {
+            None
         }
     }
 
-    /// 次に単語が来る場合は、その単語を返し、そうでない場合は読み進めずに`None`を返す。
-    /// 先頭の改行以外の空白文字は読み進められる。
-    fn consume_word(&mut self) -> Option<Box<str>> {
-        self.skip_spaces();
-        match self.peek() {
-            Some(Ok(c)) if !(c == '\n' || self.is_separator(c)) => Some(
-                self.take_while_with_self(|this, c| {
-                    !(this.is_separator(c) || c.is_ascii_whitespace())
-                })
-                .collect::<String>()
-                .into_boxed_str(),
-            ),
-            _ => None,
+    /// 次に返される`Result<Word, EncodeError>`を無視する
+    #[inline]
+    fn ignore_next_word(&mut self) {
+        if let Some(kind) = self.next_word_kind() {
+            match kind {
+                Ok(WordKind::NewLine | WordKind::Separator) | Err(_) => {
+                    self.next_char();
+                }
+                Ok(WordKind::Spaces) => {
+                    self.skip_spaces();
+                }
+                Ok(WordKind::IdentDigit) => self.ignore_identdigit(),
+            }
+        }
+    }
+
+    /// 直後に来る指定した種類の`Word`を無視する。
+    ///
+    /// 実際に読み進めた場合は`true`を返し、読み進めなかった場合は`false`を返す。
+    #[inline]
+    fn ignore_word_of(&mut self, kind: WordKind) -> bool {
+        if matches!(self.next_word_kind(), Some(Ok(k)) if k == kind) {
+            self.next_word();
+            true
+        } else {
+            false
         }
     }
 }
+
+trait WordGenPrivate: WordGeneratorTrait {
+    #[inline]
+    fn get_identdigit(&mut self) -> Box<str> {
+        self.take_while_with_self(|this, c| !(this.is_separator(c) || c.is_ascii_whitespace()))
+            .collect::<String>()
+            .into_boxed_str()
+    }
+
+    #[inline]
+    fn get_identdigit_or_panic(&mut self) -> Box<str> {
+        let tmp = self.get_identdigit();
+        if tmp.is_empty() {
+            error_next_word_kind();
+        }
+        tmp
+    }
+
+    #[inline]
+    fn ignore_identdigit(&mut self) {
+        self.skip_while_with_self(|this, c| {
+            c.map_or(false, |c| {
+                !(c.is_ascii_whitespace() || this.is_separator(c) || c == '\n')
+            })
+        });
+    }
+}
+
+impl<T: WordGeneratorTrait + ?Sized> WordGenPrivate for T {}
 
 pub struct Words<'a, W: WordGeneratorTrait + ?Sized> {
     word_gen: &'a mut W,
@@ -194,6 +289,7 @@ pub struct Words<'a, W: WordGeneratorTrait + ?Sized> {
 
 impl<'a, W: WordGeneratorTrait + ?Sized> Iterator for Words<'a, W> {
     type Item = Result<Word, EncodeError>;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.word_gen.next_word()
     }
@@ -207,32 +303,37 @@ mod test {
 
     #[test]
     fn word_gen_test() {
-        let mut buf = b"abc def".as_ref();
-        let mut gen = CharGenerator::new(&mut buf).into_word_generator();
-        assert_eq!(gen.next_word(), Some(Ok(Word::Word("abc".into()))));
-        assert_eq!(gen.next_word(), Some(Ok(Word::Word("def".into()))));
+        let s: &[u8] = b"abc def";
+        let mut gen = CharGenerator::new(s).into_word_generator();
+        assert_eq!(gen.next_word(), Some(Ok(Word::IdentDigit("abc".into()))));
+        assert_eq!(gen.next_word(), Some(Ok(Word::Spaces)));
+        assert_eq!(gen.next_word(), Some(Ok(Word::IdentDigit("def".into()))));
 
-        let buf = b"abc def\xFF ieo,;:@ovd123+233@0_0)".as_ref();
-        let mut tmp = buf;
-        let mut gen = CharGenerator::new(&mut tmp).into_word_generator();
-        assert_eq!(gen.expect_word(), Ok("abc".into()));
-        assert_eq!(gen.expect_word(), Ok("def".into()));
-        assert_eq!(gen.expect_word(), Err(Some(Err(EncodeError))));
-        assert_eq!(gen.expect_word(), Ok("ieo".into()));
-        assert_eq!(gen.expect_word(), Err(Some(Ok(Word::Separator(',')))));
+        let s: &[u8] = b"abc def\xFF ieo,;:@ovd123+233@0_0)";
+        let mut gen = CharGenerator::new(s).into_word_generator();
+        assert_eq!(gen.consume_identdigit(), Some("abc".into()));
+        assert_eq!(gen.consume_identdigit(), None);
+        gen.skip_spaces();
+        assert_eq!(gen.consume_identdigit(), Some("def".into()));
+        assert_eq!(gen.consume_identdigit(), None);
+        assert_eq!(gen.next_word(), Some(Err(EncodeError)));
+        assert_eq!(gen.consume_identdigit(), None);
+        assert_eq!(gen.next_word(), Some(Ok(Word::Spaces)));
+        assert_eq!(gen.consume_identdigit(), Some("ieo".into()));
+        assert_eq!(gen.next_word(), Some(Ok(Word::Separator(','))));
         assert!(gen.consume(';'));
         assert!(gen.consume(':'));
         assert!(!gen.consume('d'));
         assert!(gen.consume('@'));
-        assert_eq!(gen.expect_word(), Ok("ovd123".into()));
+        assert_eq!(gen.consume_identdigit(), Some("ovd123".into()));
         gen.skip_while(|c| c != Ok('@'));
         assert!(gen.consume('@'));
 
-        tmp = buf;
-        let mut gen = CharGenerator::new(&mut tmp).into_word_generator();
-        assert_eq!(gen.consume_word(), Some("abc".into()));
-        assert_eq!(gen.consume_word(), Some("def".into()));
-        assert_eq!(gen.consume_word(), None);
+        let mut gen = CharGenerator::new(s).into_word_generator();
+        assert_eq!(gen.consume_identdigit(), Some("abc".into()));
+        gen.ignore_next_word();
+        assert_eq!(gen.consume_identdigit(), Some("def".into()));
+        assert_eq!(gen.consume_identdigit(), None);
         assert_eq!(gen.next_word(), Some(Err(EncodeError)));
         // println!("WordGeneratorTrait::expect_wordが返す値のサイズ: {} byte", std::mem::size_of_val(&gen.expect_word()));
     }

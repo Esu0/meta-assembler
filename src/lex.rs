@@ -1,6 +1,5 @@
 //! 字句解析器
 
-pub mod ast;
 pub mod char_gen;
 pub mod token_gen;
 pub mod word_gen;
@@ -10,8 +9,10 @@ use thiserror::Error;
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ErrorKind {
     /// オーバーフローを含む
-    #[error("Token \"{token}\" cannot parse to integer.")]
-    ParseIntError { token: String },
+    #[error("\"{token}\"は{radix}進数の整数として解釈できません。")]
+    ParseIntError { token: Box<str>, radix: u32 },
+    #[error("整数の接頭辞\"{found}\"は不正です。")]
+    IntPrefixError { found: Box<str> },
     #[error("encoding error.")]
     EncodeError,
 }
@@ -24,29 +25,27 @@ pub struct Error {
 }
 
 impl Error {
-    fn new_parse_int_error(_: usize, _: usize, token: String) -> Self {
+    const fn new_parse_int_error(token: Box<str>, radix: u32) -> Self {
         Self {
-            inner: ErrorKind::ParseIntError { token },
+            inner: ErrorKind::ParseIntError { token, radix },
         }
     }
-    fn new_encode_error(_: usize, _: usize) -> Self {
+
+    pub const fn encode_error() -> Self {
         Self {
             inner: ErrorKind::EncodeError,
         }
     }
+
+    const fn new_int_prefix_error(found: Box<str>) -> Self {
+        Self {
+            inner: ErrorKind::IntPrefixError { found },
+        }
+    }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn error_test() {
-        let e = Error {
-            inner: ErrorKind::ParseIntError {
-                token: "100a".to_owned(),
-            },
-        };
-        assert_eq!(e.to_string(), "Token \"100a\" cannot parse to integer.");
+impl From<char_gen::EncodeError> for Error {
+    fn from(_: char_gen::EncodeError) -> Self {
+        Self::encode_error()
     }
 }

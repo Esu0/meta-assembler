@@ -1,0 +1,30 @@
+   1: ;   TEST PROGRAM #3                                  
+   2: ;       TEST INSTRUCTION = MOV LD ST JMP JZ ADD SUB  
+   3: ;                                                    
+   4:         ORG     0X0000                               
+   5:         LD      R3,DATA10                            0000: A0 0C 00 01 
+   6:         MOV     R0,R3                                0004: 00 60 
+   7:         LD      R3,DATA20                            0006: A0 0C 01 01 
+   8:         MOV     R1,R3                                000A: 00 64 
+   9:         LD      R3,DATA25                            000C: A0 0C 02 01 
+  10:         MOV     R2,R3                                0010: 00 68 
+  11:         LD      R3,MASK                              0012: A0 0C 03 01 
+  12:         ADD     R0,R1                                0016: 06 20 
+  13:         SUB     R0,R2                                0018: 0B 40 
+  14:         AND     R0,R3                                001A: 08 60 
+  15:         ST      ANS,R0                               001C: A1 00 04 01 
+  16:         INC     R0,R0                                0020: 01 00 
+  17:         INC     R0,R0                                0022: 01 00 
+  18: LOOP    DEC     R0,R0                                0024: 14 00 
+  19:         JZ      STOP                                 0026: CA 2C 00 
+  20:         JMP     LOOP                                 0029: C0 24 00 
+  21: STOP    JMP     STOP                                 002C: C0 2C 00 
+  22: ;                                                    
+  23:         ORG     0X100                                
+  24: DATA10  DB      10                                   0100: 0A 
+  25: DATA20  DB      20                                   0101: 14 
+  26: DATA25  DB      25                                   0102: 19 
+  27: MASK    DB      0XFC                                 0103: FC 
+  28: ANS             DB      1                            0104: 01 
+  29: ;                                                    
+  30:         END                                          
